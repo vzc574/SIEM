@@ -1,0 +1,2 @@
+"""Automated event-processing pipeline."""
+

@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "defensive-siem"
+version = "0.1.0"
+description = "A defensive SIEM and malware-analysis platform"
+requires-python = ">=3.11"
+
+[project.optional-dependencies]
+ai = ["openai>=1.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,18 @@
+services:
+  siem:
+    expose:
+      - "8080"
+    ports: []
+
+  proxy:
+    image: nginx:1.27-alpine
+    depends_on:
+      - siem
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/certs:/etc/nginx/certs:ro
+    restart: unless-stopped
+

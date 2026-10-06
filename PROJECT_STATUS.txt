@@ -1,0 +1,55 @@
+SIEM PROJECT STATUS
+===================
+
+Stopped at: local Docker testing completed; AWS deployment has not started.
+
+Current status
+--------------
+- Functional SIEM MVP is complete.
+- Dashboard includes Overview, Analyst triage, and Operations views.
+- Worker supports raw JSONL, syslog, Windows JSON, UFW, and access logs.
+- Detection, correlation, local IOC matching, optional VirusTotal enrichment,
+  incidents, reports, metrics, backups, retention, and webhook notifications
+  are implemented.
+- Docker Compose starts the API and continuous worker.
+- 43 Python tests pass; one socket test is skipped in the restricted environment.
+- Docker images build successfully.
+
+Local test environment
+----------------------
+- API container: siem-local-api
+- Worker container: siem-worker-1
+- Dashboard URL: http://127.0.0.1:8081/
+- Temporary local API key: local-test-secret
+
+Useful checks
+-------------
+docker ps
+curl http://127.0.0.1:8081/health
+curl -H 'X-API-Key: local-test-secret' http://127.0.0.1:8081/metrics
+docker logs --tail 30 siem-worker-1
+docker exec siem-worker-1 cat /app/data/all-alerts.jsonl
+
+Run tests
+---------
+cd /home/your_username/SIEM
+PYTHONPATH=src python3 -m unittest discover -s tests -v
+
+Local dashboard start command
+-----------------------------
+PYTHONPATH=src python3 -m siem serve \
+  --database demo/siem.db \
+  --alerts demo/alerts.jsonl
+
+Next step
+---------
+Deploy to AWS EC2 first using Docker Compose. Configure a real strong
+SIEM_API_KEY, an AWS security group allowing SSH from your IP and HTTP/HTTPS,
+then run docker compose up -d --build. Do not use the temporary local API key
+in production. Add TLS through the Nginx secure overlay after a domain and
+certificate are available.
+
+Important limitation
+--------------------
+The project is application-complete but production infrastructure still needs
+to be provisioned and security/load/recovery tested.

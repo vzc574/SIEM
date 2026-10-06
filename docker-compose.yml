@@ -1,0 +1,29 @@
+services:
+  siem:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      SIEM_API_KEY: ${SIEM_API_KEY:?Set SIEM_API_KEY before starting}
+    volumes:
+      - siem-data:/app/data
+      - siem-reports:/app/reports
+      - siem-quarantine:/app/quarantine
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: ["python", "-m", "siem", "worker", "data/events.jsonl", "--output", "data/all-alerts.jsonl", "--state", "data/worker-state.json", "--incident-database", "data/siem.db", "--report", "reports/current.md", "--interval", "30"]
+    environment:
+      VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:-}
+      SIEM_WEBHOOK_TOKEN: ${SIEM_WEBHOOK_TOKEN:-}
+    volumes:
+      - siem-data:/app/data
+      - siem-reports:/app/reports
+      - siem-quarantine:/app/quarantine
+    restart: unless-stopped
+
+volumes:
+  siem-data:
+  siem-reports:
+  siem-quarantine:
