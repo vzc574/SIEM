@@ -38,7 +38,6 @@ services:
       - "${SIEM_LOG_GROUP:-4}"
     volumes:
       - siem-data:/app/data
-      - ./ingestion.py:/app/ingestion.py:ro
       - /var/log:/host-logs:ro
     restart: unless-stopped
 

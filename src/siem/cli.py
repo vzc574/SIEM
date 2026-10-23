@@ -85,6 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve_parser.add_argument("--port", type=int, default=8080, help="bind port")
     serve_parser.add_argument("--database", type=Path, default=Path("data/siem.db"), help="SQLite database path")
     serve_parser.add_argument("--alerts", type=Path, action="append", default=[], help="alert JSONL path; may be repeated")
+    serve_parser.add_argument("--insecure-local", action="store_true", help="allow anonymous admin access on loopback (development only)")
     ai_parser = subparsers.add_parser("ai-report", help="generate an optional AI-assisted report")
     ai_parser.add_argument("alerts", type=Path, help="alerts JSONL file")
     ai_parser.add_argument("--analysis", type=Path, help="optional static-analysis JSON report")
@@ -249,7 +250,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "serve":
         try:
-            server = create_server(args.host, args.port, args.database, os.getenv("SIEM_API_KEY"), args.alerts)
+            server = create_server(args.host, args.port, args.database, os.getenv("SIEM_API_KEY"), args.alerts,
+                                   allow_insecure_local=args.insecure_local)
         except (OSError, ValueError) as exc:
             print(f"API startup failed: {exc}", file=sys.stderr)
             return 1

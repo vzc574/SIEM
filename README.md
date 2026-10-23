@@ -473,6 +473,27 @@ trusted). Viewer keys get `403` on writes. The dashboard script is served from
 client. `docker compose --profile agent up -d` also starts a collector that
 tails the host's `/var/log/auth.log` into the worker's input.
 
+### Alert storage and sign-in (SIEM-5)
+
+Alerts are stored in the `alerts` table of `data/siem.db`, unique per rule,
+event and indicator, so the worker and dashboard no longer re-read alert files
+(alert JSONL files given to `serve --alerts` are imported incrementally).
+
+The server refuses to start without credentials. Create dashboard users and
+sign in on the page:
+
+```bash
+python3 database.py user-add alice --role analyst --database data/siem.db
+docker compose exec siem python database.py user-add alice --role analyst
+```
+
+Sessions are HttpOnly, SameSite=Strict cookies valid for 8 hours; writes made
+with a session must be JSON (CSRF protection). 10 failed sign-ins from one
+address within 5 minutes are locked out, and every dashboard sign-in attempt is
+recorded as a `login.success`/`login.failed` security event. API keys remain
+available for scripts. For local development only, `--insecure-local` allows
+anonymous admin access on a loopback address.
+
 ## Configuration
 
 The application reads these optional environment variables:

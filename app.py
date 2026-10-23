@@ -11,9 +11,12 @@ Examples:
 Endpoints: GET / (dashboard), /health, /me, /metrics, /stats, /events,
 /alerts, /incidents, /incidents/<id>; POST /incidents; PATCH /incidents/<id>.
 
-Authentication: SIEM_API_KEY (single admin key) or SIEM_API_KEYS as
-`name:key=role,...` with roles viewer/analyst/admin. The key's name is what
-the incident audit log records as the actor. Behind a reverse proxy, set
+Authentication: dashboard users (`python database.py user-add NAME --role
+analyst`, then sign in on the page) and/or API keys for scripts: SIEM_API_KEY
+(single admin key) or SIEM_API_KEYS as `name:key=role,...` with roles
+viewer/analyst/admin. The user or key name is what the incident audit log
+records as the actor. The server refuses to start without credentials unless
+`--insecure-local` is given with a loopback host. Behind a reverse proxy, set
 SIEM_TRUSTED_PROXIES (CIDRs) so rate limiting uses the real client address.
 """
 
@@ -24,10 +27,10 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
-from siem.api.server import alert_summary, create_server  # noqa: E402
+from siem.api.server import create_server  # noqa: E402
 from siem.reporting.report import generate_report  # noqa: E402
 
-__all__ = ["create_server", "alert_summary", "generate_report", "main"]
+__all__ = ["create_server", "generate_report", "main"]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -38,6 +41,8 @@ def main(argv: list[str] | None = None) -> int:
     serve.add_argument("--port", type=int, default=8080)
     serve.add_argument("--database", type=Path, default=Path("data/siem.db"))
     serve.add_argument("--alerts", type=Path, action="append", help="alert JSONL file (repeatable; default data/all-alerts.jsonl)")
+    serve.add_argument("--insecure-local", action="store_true",
+                       help="allow anonymous admin access (only with a loopback --host; development only)")
     report = commands.add_parser("report", help="write a Markdown incident report from alerts")
     report.add_argument("--alerts", type=Path, default=Path("data/all-alerts.jsonl"))
     report.add_argument("--analysis", type=Path, help="optional static-analysis JSON")
@@ -55,7 +60,8 @@ def main(argv: list[str] | None = None) -> int:
 
     alerts = args.alerts or [Path("data/all-alerts.jsonl")]
     try:
-        server = create_server(args.host, args.port, args.database, os.getenv("SIEM_API_KEY"), alerts)
+        server = create_server(args.host, args.port, args.database, os.getenv("SIEM_API_KEY"), alerts,
+                               allow_insecure_local=args.insecure_local)
     except (OSError, ValueError) as exc:
         print(f"startup failed: {exc}", file=sys.stderr)
         return 1

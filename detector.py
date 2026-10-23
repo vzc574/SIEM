@@ -52,13 +52,15 @@ def detect_events(events_path: Path, output_path: Path, *, ioc_database: Path | 
                   incident_database: Path | None = None) -> tuple[int, int]:
     """One-shot detection over a normalized events file. Returns (alerts, incidents).
 
-    With `incident_database`, the events are also indexed there so the
-    dashboard can search and pivot on them.
+    With `incident_database`, the events and alerts are also stored there so
+    the dashboard can search and pivot on them.
     """
     events = load_jsonl(events_path)
     alerts = process_event_records(events, ioc_database=ioc_database)
     if incident_database:
-        SqliteEventStore(incident_database).append_records(events)
+        store = SqliteEventStore(incident_database)
+        store.append_records(events)
+        store.append_alerts([alert.to_record() for alert in alerts])
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as stream:
         for alert in alerts:

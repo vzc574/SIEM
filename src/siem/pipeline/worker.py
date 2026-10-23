@@ -12,7 +12,8 @@ from typing import Any
 from siem.detection.correlation import LOGIN_EVENT_TYPES, MAX_WINDOW_SECONDS, _time
 from siem.ingestion.formats import LogLineError, parse_line
 from siem.ingestion.json_lines import parse_json_record
-from siem.pipeline.run import alert_record_key, create_incidents_for_alerts, process_event_records, process_events
+from siem.domain.alerts import alert_record_key
+from siem.pipeline.run import create_incidents_for_alerts, process_event_records, process_events
 from siem.reporting.report import generate_report
 from siem.response.notify import NotificationError, send_webhook
 from siem.storage.sqlite import SqliteEventStore
@@ -149,17 +150,23 @@ def run_incremental(
     lines, new_state = _read_new_lines(input_path, _load_state(state_path, input_path))
     events = _normalize_worker_events(_parse_lines(lines, input_format, source))
     history: list[dict[str, Any]] = []
-    if incident_database and events:
+    store = SqliteEventStore(incident_database) if incident_database else None
+    if store and events:
         # The incident database is also the durable event index used by the
         # dashboard. INSERT OR IGNORE makes replay safe after a crash.
-        store = SqliteEventStore(incident_database)
         history = _login_history(store, events)
         store.append_records(events)
     alerts = process_event_records(events, ioc_database=ioc_database, external_api_key=external_api_key,
                                    external_cache=external_cache, external_max_hashes=external_max_hashes,
                                    history=history)
-    existing = _existing_alert_keys(output_path)
-    fresh_alerts = [alert for alert in alerts if alert_record_key(alert.to_record()) not in existing]
+    if store:
+        # The alerts table's unique key decides what is new: no full re-read
+        # of the alert file each cycle.
+        new_ids = {record["alert_id"] for record in store.append_alerts([alert.to_record() for alert in alerts])}
+        fresh_alerts = [alert for alert in alerts if str(alert.alert_id) in new_ids]
+    else:
+        existing = _existing_alert_keys(output_path)
+        fresh_alerts = [alert for alert in alerts if alert_record_key(alert.to_record()) not in existing]
     if fresh_alerts:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("a", encoding="utf-8") as stream:

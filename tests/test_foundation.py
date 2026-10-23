@@ -215,7 +215,7 @@ class FoundationTests(unittest.TestCase):
                 message="Invalid password", severity="medium",
             ))
             try:
-                server = create_server("127.0.0.1", 0, database)
+                server = create_server("127.0.0.1", 0, database, allow_insecure_local=True)
             except PermissionError:
                 self.skipTest("environment does not permit local listening sockets")
             thread = Thread(target=server.serve_forever, daemon=True)

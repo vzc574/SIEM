@@ -21,13 +21,19 @@ DASHBOARD_HTML = r'''<!doctype html>
     .table-wrap { overflow-x:auto; border:1px solid #e6eaf2; border-radius:12px; box-shadow:0 5px 18px #1018280d } table { width:100%; border-collapse:collapse; background:var(--panel) } th,td { text-align:left; padding:.8rem; border-bottom:1px solid var(--line); vertical-align:top } th { white-space:nowrap; color:var(--muted); font-size:.78rem; text-transform:uppercase; letter-spacing:.06em; background:#f8fafc } tr:last-child td { border-bottom:0 } tbody tr:hover { background:#f8fbff }
     .high,.critical { color:var(--red); font-weight:700 } .medium { color:var(--orange); font-weight:700 } .status { color:var(--green); font-weight:700 } dialog { border:0; border-radius:14px; padding:1.5rem; min-width:min(580px,90vw); box-shadow:0 24px 70px #10182844 } dialog::backdrop { background:#10182888; backdrop-filter:blur(3px) } pre { max-height:260px; overflow:auto; padding:1rem; border-radius:8px; background:#101828; color:#d1fadf; font-size:.8rem } .toolbar { background:#ffffffaa; padding:.45rem; border-radius:10px }
     .badge { display:inline-block; padding:.22rem .55rem; border-radius:999px; font-size:.75rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; background:#eef2ff; color:#3538cd } .badge.high,.badge.critical { background:#fef3f2; color:var(--red) } .badge.medium { background:#fffaeb; color:var(--orange) } .badge.low { background:#ecfdf3; color:var(--green) }
+    .login { max-width:420px; margin:3rem auto } .login form { display:grid; gap:.75rem } .login label { display:grid; gap:.3rem; font-size:.9rem } .login details { margin-top:1rem; font-size:.9rem } .login details .toolbar { margin:.6rem 0 0; padding:0; background:none } [hidden] { display:none !important }
     @media (max-width:760px) { header { align-items:flex-start; flex-direction:column } .grid, .grid.panels { grid-template-columns:repeat(2,1fr) } }
     @media (max-width:520px) { .grid.panels { grid-template-columns:1fr } }
   </style>
 </head>
 <body>
-  <header><div><h1>SIEM Dashboard</h1><div class="muted">Local security monitoring and incident triage</div></div><div class="toolbar"><input id="api-key" type="password" placeholder="API key (kept for this tab only)" autocomplete="off"><button id="save-key">Save key</button><button id="refresh">Refresh</button></div></header>
-  <nav class="nav" aria-label="Dashboard views"><button data-view="overview">Overview</button><button data-view="triage">Analyst triage</button><button data-view="operations">Operations</button><span id="role-label" class="muted"></span></nav>
+  <header><div><h1>SIEM Dashboard</h1><div class="muted">Local security monitoring and incident triage</div></div><div class="toolbar"><button id="refresh">Refresh</button><button id="logout" hidden>Sign out</button></div></header>
+  <section id="login-view" class="login card" hidden><h2>Sign in</h2>
+    <form id="login-form"><label>Username <input id="login-user" autocomplete="username" required></label><label>Password <input id="login-password" type="password" autocomplete="current-password" required></label><button type="submit">Sign in</button></form>
+    <p id="login-error" class="error" role="alert"></p>
+    <details><summary>Use an API key instead</summary><div class="toolbar"><input id="api-key" type="password" placeholder="API key (kept for this tab only)" autocomplete="off"><button id="save-key">Use key</button></div></details>
+  </section>
+  <nav id="app-nav" class="nav" aria-label="Dashboard views"><button data-view="overview">Overview</button><button data-view="triage">Analyst triage</button><button data-view="operations">Operations</button><span id="role-label" class="muted"></span></nav>
   <div id="error" class="error" role="alert"></div>
   <section id="overview" class="view">
     <section class="grid"><div class="card"><div>API status</div><div id="status" class="number">…</div></div><div class="card"><div>Security events</div><div id="event-count" class="number">…</div></div><div class="card"><div>Open incidents</div><div id="incident-count" class="number">…</div></div><div class="card"><div>Alerts (24h)</div><div id="alert-count" class="number">…</div></div></section>
@@ -55,10 +61,21 @@ const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'];
 
 function storedKey() { try { return sessionStorage.getItem('siem-api-key') || ''; } catch { return ''; } }
 function headers() { const key = storedKey(); return key ? {'X-API-Key': key} : {}; }
+class HttpError extends Error { constructor(path, status) { super(`${path}: HTTP ${status}`); this.status = status; } }
 async function request(path, options = {}) {
   const response = await fetch(path, {...options, headers: {...headers(), ...(options.headers || {})}});
-  if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
+  if (!response.ok) throw new HttpError(path, response.status);
   return response;
+}
+const postJson = (path, body) => request(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+
+function showSignedIn(signedIn) {
+  $('login-view').hidden = signedIn;
+  $('app-nav').hidden = !signedIn;
+  $('logout').hidden = !signedIn;
+  $('refresh').hidden = !signedIn;
+  document.querySelectorAll('.view').forEach(view => { view.hidden = !signedIn; });
+  if (!signedIn) $('login-user').focus();
 }
 const get = async (path, options) => (await request(path, options)).json();
 const text = async path => (await request(path)).text();
@@ -122,6 +139,12 @@ function switchView(view) {
 async function load() {
   $('error').textContent = '';
   try {
+    await get('/me');
+  } catch (error) {
+    if (error.status === 401) { showSignedIn(false); return; }
+  }
+  showSignedIn(true);
+  try {
     const [health, metricsText, stats, alerts, incidents, me] = await Promise.all([
       get('/health'), text('/metrics'), get('/stats?hours=24'),
       get(`/alerts?limit=100&text=${encodeURIComponent($('search').value)}&severity=${encodeURIComponent($('severity').value)}`),
@@ -144,6 +167,23 @@ async function load() {
   }
 }
 
+$('login-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  $('login-error').textContent = '';
+  try {
+    await postJson('/login', {username: $('login-user').value, password: $('login-password').value});
+    $('login-password').value = '';
+    load();
+  } catch (error) {
+    $('login-error').textContent = error.status === 429 ? 'Too many failed attempts. Try again in a few minutes.' : 'Wrong username or password.';
+  }
+});
+$('logout').addEventListener('click', async () => {
+  try { sessionStorage.removeItem('siem-api-key'); } catch {}
+  $('api-key').value = '';
+  try { await postJson('/logout', {}); } catch {}
+  showSignedIn(false);
+});
 $('api-key').value = storedKey();
 document.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => switchView(button.dataset.view)));
 let savedView = 'overview';
