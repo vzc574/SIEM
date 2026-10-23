@@ -389,6 +389,22 @@ PYTHONPATH=src python3 -m siem correlate data/events.jsonl \
 The initial correlation rules detect repeated failed logins and successful
 logins following repeated failures within a five-minute window.
 
+### Detection module (`detector.py`, SIEM-3)
+
+```bash
+python3 detector.py rules
+python3 detector.py detect data/events.jsonl --output data/alerts.jsonl --database data/siem.db
+python3 detector.py worker /var/log/auth.log --format syslog --database data/siem.db
+```
+
+Brute-force rules: 5+ failures for one account in 5 minutes, 10+ failures from
+one source IP across accounts (spraying), and a successful login after 3+
+failures (critical). Each burst rule fires at most once per window. The worker
+correlates each batch together with recent logins stored in the database, so
+attacks that span worker cycles are detected; malformed lines are logged and
+skipped. Open incidents for the same subject are extended rather than
+duplicated.
+
 ## Start the API
 
 ```bash
