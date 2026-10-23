@@ -334,6 +334,20 @@ applies a reverse-proxy request limit. Do not commit private keys.
 
 ## Index and search events
 
+### Storage module (`database.py`, SIEM-2)
+
+```bash
+python3 database.py init data/siem.db
+python3 database.py index data/events.jsonl --database data/siem.db
+python3 database.py stats data/siem.db      # counts, severities, top failed-login IPs/users
+```
+
+The database runs in WAL mode so the API and worker can share it. Event times
+are stored as UTC ISO-8601 (older databases are migrated on open), so ordering
+and retention compare real time. `username` and `src_ip` are indexed
+generated columns used for correlation lookback and dashboard pivots.
+
+
 ```bash
 PYTHONPATH=src python3 -m siem index-events data/events.jsonl
 PYTHONPATH=src python3 -m siem search --text login --severity medium
