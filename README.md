@@ -455,6 +455,45 @@ Incident creation and updates require authentication. Include `X-Actor` to
 identify the analyst making the change; all lifecycle changes are written to
 the SQLite audit log.
 
+### Dashboard module (`app.py`, SIEM-4)
+
+```bash
+python3 app.py serve --database data/siem.db --alerts data/all-alerts.jsonl
+python3 app.py report --alerts data/all-alerts.jsonl --output reports/current.md
+```
+
+The Overview shows live threat metrics from `GET /stats`: alerts by severity
+and rule, top failed-login source IPs, and most targeted accounts (24h).
+Use named keys, `SIEM_API_KEYS=alice:<key>=analyst,...`; the name is recorded
+as the actor in the incident audit log (the `X-Actor` header is no longer
+trusted). Viewer keys get `403` on writes. The dashboard script is served from
+`/dashboard.js` and the CSP forbids inline scripts; the API key is kept in
+`sessionStorage` for the current tab only. Behind a reverse proxy, set
+`SIEM_TRUSTED_PROXIES` (the secure overlay does) so rate limiting is per real
+client. `docker compose --profile agent up -d` also starts a collector that
+tails the host's `/var/log/auth.log` into the worker's input.
+
+### Alert storage and sign-in (SIEM-5)
+
+Alerts are stored in the `alerts` table of `data/siem.db`, unique per rule,
+event and indicator, so the worker and dashboard no longer re-read alert files
+(alert JSONL files given to `serve --alerts` are imported incrementally).
+
+The server refuses to start without credentials. Create dashboard users and
+sign in on the page:
+
+```bash
+python3 database.py user-add alice --role analyst --database data/siem.db
+docker compose exec siem python database.py user-add alice --role analyst
+```
+
+Sessions are HttpOnly, SameSite=Strict cookies valid for 8 hours; writes made
+with a session must be JSON (CSRF protection). 10 failed sign-ins from one
+address within 5 minutes are locked out, and every dashboard sign-in attempt is
+recorded as a `login.success`/`login.failed` security event. API keys remain
+available for scripts. For local development only, `--insecure-local` allows
+anonymous admin access on a loopback address.
+
 ## Configuration
 
 The application reads these optional environment variables:

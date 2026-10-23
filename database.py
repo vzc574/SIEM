@@ -10,6 +10,8 @@ Schema (version 2):
                      generated+indexed `username` and `src_ip` columns
     incidents        incident_id PK, title, severity, status, assignee, alert_ids_json
     audit_log        append-only lifecycle history per incident
+    alerts           every alert, unique per rule+event+indicator (alert_key)
+    users/sessions   dashboard accounts (scrypt hashes) and hashed session tokens
 
 Examples:
     python database.py init data/siem.db
@@ -18,11 +20,14 @@ Examples:
     python database.py search data/siem.db --text "Failed password"
     python database.py backup data/siem.db backups/siem.db
     python database.py prune data/siem.db --older-than-days 90 [--apply --backup backups/pre.db]
+    python database.py user-add alice --role analyst --database data/siem.db
+    python database.py user-list --database data/siem.db
 """
 
 import argparse
 from datetime import datetime, timedelta, timezone
 import json
+import getpass
 from pathlib import Path
 import sys
 
@@ -31,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 from siem.reporting.report import load_jsonl  # noqa: E402
 from siem.storage.backup import backup_database  # noqa: E402
 from siem.storage.retention import prune_events  # noqa: E402
-from siem.storage.sqlite import SCHEMA_VERSION, SqliteEventStore, connect, to_utc  # noqa: E402
+from siem.storage.sqlite import ROLES, SCHEMA_VERSION, SqliteEventStore, connect, to_utc  # noqa: E402
 from siem.storage.verify import verify_database  # noqa: E402
 
 __all__ = ["SCHEMA_VERSION", "SqliteEventStore", "connect", "to_utc", "open_store", "stats",
@@ -48,10 +53,20 @@ def stats(store: SqliteEventStore, *, hours: int = 24) -> dict[str, object]:
     return {
         **store.metrics(),
         "window_hours": hours,
+        "alerts": store.alert_summary(since=since),
         "severity_counts": store.severity_counts(since=since),
         "top_failed_login_ips": store.top_values("src_ip", since=since, event_type="login.failed", limit=5),
         "top_failed_login_users": store.top_values("username", since=since, event_type="login.failed", limit=5),
     }
+
+
+def _read_password(from_stdin: bool) -> str:
+    if from_stdin:
+        return sys.stdin.readline().rstrip("\n")
+    password = getpass.getpass("Password: ")
+    if password != getpass.getpass("Repeat password: "):
+        raise ValueError("passwords do not match")
+    return password
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -78,6 +93,19 @@ def main(argv: list[str] | None = None) -> int:
     prune.add_argument("--older-than-days", type=int, required=True)
     prune.add_argument("--apply", action="store_true")
     prune.add_argument("--backup", type=Path)
+    def user_command(name: str, help_text: str):
+        command = commands.add_parser(name, help=help_text)
+        command.add_argument("username")
+        command.add_argument("--database", type=Path, default=Path("data/siem.db"))
+        return command
+    user_add = user_command("user-add", "create a dashboard user")
+    user_add.add_argument("--role", choices=ROLES, default="viewer")
+    user_add.add_argument("--password-stdin", action="store_true", help="read the password from stdin (for scripts)")
+    user_passwd = user_command("user-passwd", "set a new password (signs the user out)")
+    user_passwd.add_argument("--password-stdin", action="store_true")
+    user_command("user-disable", "block a user from signing in")
+    user_command("user-enable", "allow a disabled user to sign in again")
+    commands.add_parser("user-list", help="list dashboard users").add_argument("--database", type=Path, default=Path("data/siem.db"))
     args = parser.parse_args(argv)
 
     try:
@@ -99,6 +127,21 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "backup":
             backup_database(args.database, args.output)
             print(f"backup written to {args.output}")
+        elif args.command in {"user-add", "user-passwd"}:
+            password = _read_password(args.password_stdin)
+            store = open_store(args.database)
+            if args.command == "user-add":
+                store.create_user(args.username, password, args.role)
+                print(f"created {args.role} user {args.username}")
+            else:
+                store.update_user(args.username, password=password)
+                print(f"password changed for {args.username}; existing sessions signed out")
+        elif args.command in {"user-disable", "user-enable"}:
+            open_store(args.database).update_user(args.username, disabled=args.command == "user-disable")
+            print(f"{args.username} {'disabled' if args.command == 'user-disable' else 'enabled'}")
+        elif args.command == "user-list":
+            for user in open_store(args.database).list_users():
+                print(f"{user['username']:24} {user['role']:8} {'disabled' if user['disabled'] else 'active'}")
         elif args.command == "prune":
             count = prune_events(args.database, older_than_days=args.older_than_days, apply=args.apply, backup_path=args.backup)
             print(f"{'deleted' if args.apply else 'would delete'} {count} event(s)")

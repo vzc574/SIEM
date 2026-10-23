@@ -11,7 +11,7 @@ from siem.intel.matcher import match_events
 from siem.intel.external import enrich_events
 from siem.intel.store import IOCStore
 from siem.reporting.report import load_jsonl
-from siem.domain.alerts import Alert
+from siem.domain.alerts import Alert, alert_record_key
 from siem.storage.sqlite import SqliteEventStore
 
 
@@ -49,17 +49,6 @@ def process_event_records(events: list[dict[str, Any]], *, ioc_database: Path | 
         alerts.extend(enrich_events(normalized, api_key=external_api_key, cache_path=external_cache,
                                     max_hashes=external_max_hashes))
     return deduplicate_alerts(alerts)
-
-
-def alert_record_key(record: dict[str, Any]) -> str:
-    """Identity of one finding: the same rule firing on the same event and indicator.
-
-    Per-event rules are keyed by event, so separate events from one source are
-    never merged; correlation/intel alerts also carry the indicator they matched.
-    """
-    evidence = record.get("evidence") or {}
-    indicator = evidence.get("identity") or evidence.get("value") or evidence.get("sha256") or ""
-    return f"{record.get('rule_id')}|{record.get('event_id')}|{indicator}"
 
 
 def alert_key(alert: Alert) -> str:

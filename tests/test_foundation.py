@@ -17,7 +17,7 @@ from siem.ingestion.syslog import SyslogParseError, collect_syslog, parse_syslog
 from siem.ingestion.syslog_runner import ingest_syslog
 from siem.detection.correlation import correlate
 from siem.api.server import create_server, is_authorized, _read_jsonl, parse_api_keys, role_for_request, render_metrics
-from siem.api.dashboard import DASHBOARD_HTML
+from siem.api.dashboard import DASHBOARD_HTML, DASHBOARD_JS
 from siem.ai.openai_reports import build_ai_prompt
 from siem.intel.store import IOCStore
 from siem.intel.matcher import match_event
@@ -215,7 +215,7 @@ class FoundationTests(unittest.TestCase):
                 message="Invalid password", severity="medium",
             ))
             try:
-                server = create_server("127.0.0.1", 0, database)
+                server = create_server("127.0.0.1", 0, database, allow_insecure_local=True)
             except PermissionError:
                 self.skipTest("environment does not permit local listening sockets")
             thread = Thread(target=server.serve_forever, daemon=True)
@@ -268,7 +268,7 @@ class FoundationTests(unittest.TestCase):
 
     def test_dashboard_is_available_as_static_html(self) -> None:
         self.assertIn("SIEM Dashboard", DASHBOARD_HTML)
-        self.assertIn("/alerts", DASHBOARD_HTML)
+        self.assertIn("/alerts", DASHBOARD_JS)
 
     def test_ai_prompt_is_bounded_and_evidence_based(self) -> None:
         prompt = build_ai_prompt({"alerts": [{"reason": "x" * 10000}]})
