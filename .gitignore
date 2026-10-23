@@ -8,3 +8,5 @@ reports/
 quarantine/
 *.log
 
+*.db-wal
+*.db-shm

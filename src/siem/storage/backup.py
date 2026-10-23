@@ -1,7 +1,7 @@
 """SQLite backup utility."""
 
 from pathlib import Path
-import sqlite3
+from siem.storage.sqlite import connect
 
 
 def backup_database(source: Path, destination: Path) -> None:
@@ -10,6 +10,6 @@ def backup_database(source: Path, destination: Path) -> None:
     if source.resolve() == destination.resolve():
         raise ValueError("backup destination must differ from source")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(source) as source_connection, sqlite3.connect(destination) as destination_connection:
+    with connect(source) as source_connection, connect(destination) as destination_connection:
         source_connection.backup(destination_connection)
 
