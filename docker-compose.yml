@@ -4,7 +4,9 @@ services:
     ports:
       - "8080:8080"
     environment:
-      SIEM_API_KEY: ${SIEM_API_KEY:?Set SIEM_API_KEY before starting}
+      SIEM_API_KEY: ${SIEM_API_KEY:-}
+      SIEM_API_KEYS: ${SIEM_API_KEYS:-}
+      SIEM_TRUSTED_PROXIES: ${SIEM_TRUSTED_PROXIES:-}
     volumes:
       - siem-data:/app/data
       - siem-reports:/app/reports
@@ -21,6 +23,23 @@ services:
       - siem-data:/app/data
       - siem-reports:/app/reports
       - siem-quarantine:/app/quarantine
+    restart: unless-stopped
+
+  # Optional collector: tails the host's SSH auth log into data/events.jsonl
+  # for the worker. Enable with `docker compose --profile agent up -d`.
+  # /var/log/auth.log is usually root:adm 0640; group 4 is `adm` on
+  # Debian/Ubuntu hosts - adjust SIEM_LOG_GROUP for other distributions.
+  agent:
+    build: .
+    profiles: ["agent"]
+    command: ["python", "ingestion.py", "agent", "/host-logs/auth.log", "--format", "syslog", "--source", "host-auth", "--output", "data/events.jsonl", "--state", "data/agent-auth.state.json"]
+    working_dir: /app
+    group_add:
+      - "${SIEM_LOG_GROUP:-4}"
+    volumes:
+      - siem-data:/app/data
+      - ./ingestion.py:/app/ingestion.py:ro
+      - /var/log:/host-logs:ro
     restart: unless-stopped
 
 volumes:

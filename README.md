@@ -455,6 +455,24 @@ Incident creation and updates require authentication. Include `X-Actor` to
 identify the analyst making the change; all lifecycle changes are written to
 the SQLite audit log.
 
+### Dashboard module (`app.py`, SIEM-4)
+
+```bash
+python3 app.py serve --database data/siem.db --alerts data/all-alerts.jsonl
+python3 app.py report --alerts data/all-alerts.jsonl --output reports/current.md
+```
+
+The Overview shows live threat metrics from `GET /stats`: alerts by severity
+and rule, top failed-login source IPs, and most targeted accounts (24h).
+Use named keys, `SIEM_API_KEYS=alice:<key>=analyst,...`; the name is recorded
+as the actor in the incident audit log (the `X-Actor` header is no longer
+trusted). Viewer keys get `403` on writes. The dashboard script is served from
+`/dashboard.js` and the CSP forbids inline scripts; the API key is kept in
+`sessionStorage` for the current tab only. Behind a reverse proxy, set
+`SIEM_TRUSTED_PROXIES` (the secure overlay does) so rate limiting is per real
+client. `docker compose --profile agent up -d` also starts a collector that
+tails the host's `/var/log/auth.log` into the worker's input.
+
 ## Configuration
 
 The application reads these optional environment variables:

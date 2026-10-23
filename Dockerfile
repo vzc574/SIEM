@@ -16,5 +16,8 @@ ENV SIEM_API_KEY=
 EXPOSE 8080
 VOLUME ["/app/data", "/app/reports", "/app/quarantine"]
 
-CMD ["python", "-m", "siem", "serve", "--host", "0.0.0.0", "--port", "8080"]
+HEALTHCHECK --interval=30s --timeout=5s CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=4)"
+
+CMD ["python", "-m", "siem", "serve", "--host", "0.0.0.0", "--port", "8080", \
+     "--database", "data/siem.db", "--alerts", "data/all-alerts.jsonl"]
 

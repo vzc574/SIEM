@@ -2,7 +2,11 @@ services:
   siem:
     expose:
       - "8080"
-    ports: []
+    # !reset is required: Compose merges port lists, so `ports: []` would
+    # keep 8080 published and let clients bypass TLS.
+    ports: !reset []
+    environment:
+      SIEM_TRUSTED_PROXIES: ${SIEM_TRUSTED_PROXIES:-172.16.0.0/12,10.0.0.0/8,192.168.0.0/16}
 
   proxy:
     image: nginx:1.27-alpine
