@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [master, "feature/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Byte-compile
+        run: python -m compileall -q src ingestion.py database.py detector.py app.py
+      - name: Unit and integration tests
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests -v
+      - name: Example rules file is valid
+        run: python detector.py check-rules rules.example.toml
+
+  docker:
+    name: Docker image and Compose
+    runs-on: ubuntu-24.04
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t siem:ci .
+      - name: Container starts and is healthy
+        run: |
+          docker run -d --name siem-ci -e SIEM_API_KEY=ci-only-key -p 8080:8080 siem:ci
+          for attempt in $(seq 30); do
+            curl -fs http://127.0.0.1:8080/health && break
+            sleep 1
+          done
+          curl -fs http://127.0.0.1:8080/health
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/alerts)" = 401
+          curl -fs -H 'X-API-Key: ci-only-key' http://127.0.0.1:8080/stats > /dev/null
+      - name: Container logs
+        if: always()
+        run: docker logs siem-ci || true
+      - name: Compose files are valid and the TLS overlay hides port 8080
+        env:
+          SIEM_API_KEY: ci-only-key
+        run: |
+          docker compose config -q
+          docker compose --profile agent config -q
+          published=$(docker compose -f docker-compose.yml -f docker-compose.secure.yml config --format json \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['services']['siem'].get('ports', []))")
+          echo "siem ports in secure overlay: $published"
+          test "$published" = "[]"

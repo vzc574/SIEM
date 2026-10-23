@@ -1,4 +1,6 @@
-# SIME / SIEM
+# SIEM
+
+[![CI](https://github.com/vzc574/SIEM/actions/workflows/ci.yml/badge.svg)](https://github.com/vzc574/SIEM/actions/workflows/ci.yml)
 
 A defensive security information and event management platform for collecting
 logs, detecting suspicious activity, analyzing malware safely, and producing
@@ -525,6 +527,31 @@ SIEM_INGEST_KEY=<key> python3 ingestion.py agent /var/log/auth.log --format sysl
 # Windows host (elevated PowerShell; see the script header for scheduled-task setup)
 .\deploy\windows\siem-collector.ps1 -SiemUrl https://siem.example.com
 ```
+
+### Timeline, CSV export and notifications (SIEM-7)
+
+The Overview has a time-range selector (24 hours, 7 days, 30 days) and an
+"Alerts over time" chart (stacked by severity, with failed logins as a line),
+served by `GET /stats/timeline?hours=N`. "Export CSV" on the alert and event
+tables downloads `/alerts.csv` and `/events.csv` with the current filters (up
+to 10,000 rows); cells that start with `=`, `+`, `-` or `@` are prefixed with
+`'` so log data cannot run as spreadsheet formulas.
+
+The worker sends new alerts at or above `SIEM_NOTIFY_MIN_SEVERITY` (default
+`high`) to every configured channel: Slack (`SIEM_SLACK_WEBHOOK_URL`),
+Telegram (`SIEM_TELEGRAM_BOT_TOKEN` + `SIEM_TELEGRAM_CHAT_ID`) and email
+(`SIEM_SMTP_*`; STARTTLS is required, or implicit TLS on port 465). See
+`.env.example`. A failing channel is logged and does not block the others.
+
+### CI and deployment (SIEM-8)
+
+GitHub Actions (`.github/workflows/ci.yml`) runs the test suite on Python
+3.11-3.13, validates `rules.example.toml`, builds the Docker image, checks
+that the container starts and enforces authentication, and verifies that the
+TLS overlay does not publish port 8080.
+
+To deploy on AWS EC2 (Ubuntu 24.04) with HTTPS, backups and certificate
+renewal, follow [deploy/aws/README.md](deploy/aws/README.md).
 
 ## Configuration
 

@@ -16,7 +16,7 @@ from siem.ingestion.json_lines import parse_json_record
 from siem.domain.alerts import alert_record_key
 from siem.pipeline.run import create_incidents_for_alerts, process_event_records, process_events
 from siem.reporting.report import generate_report
-from siem.response.notify import NotificationError, send_webhook
+from siem.response.notify import NotificationError, Notifier, send_webhook
 from siem.storage.sqlite import SqliteEventStore
 
 
@@ -141,6 +141,7 @@ def run_incremental(
     webhook_url: str | None = None,
     webhook_token: str | None = None,
     rules: RulesConfig | None = None,
+    notifier: Notifier | None = None,
 ) -> int:
     """Process only input appended after the durable checkpoint.
 
@@ -184,6 +185,9 @@ def run_incremental(
                 # Alerts remain durable in output_path; operators can retry
                 # delivery from that append-only stream independently.
                 logger.warning("webhook delivery failed: %s", exc)
+        if notifier:
+            # Failures are logged per channel; alerts stay durable in the database and file.
+            notifier.notify([alert.to_record() for alert in fresh_alerts])
     if report_path and output_path.exists():
         generate_report(output_path, report_path)
     state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -217,6 +221,9 @@ def run_forever(
     if interval_seconds < 1:
         raise ValueError("interval must be at least one second")
     rules = load_rules(rules_path)  # fail fast on a bad file at startup
+    notifier = Notifier.from_env()
+    if notifier.channels:
+        logger.info("notifying %s for %s+ alerts", ", ".join(notifier.channels), notifier.min_severity)
     while True:
         try:
             rules = load_rules(rules_path)
@@ -230,7 +237,7 @@ def run_forever(
                 external_api_key=external_api_key, external_cache=external_cache,
                 external_max_hashes=external_max_hashes,
                 webhook_url=webhook_url, webhook_token=webhook_token,
-                rules=rules,
+                rules=rules, notifier=notifier,
             )
         except FileNotFoundError:
             # A newly deployed worker may start before its first collector
