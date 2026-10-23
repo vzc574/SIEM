@@ -170,7 +170,8 @@ class FoundationTests(unittest.TestCase):
     def test_syslog_line_is_normalized(self) -> None:
         event = parse_syslog_line("<34>Sep 23 10:20:30 workstation sshd[1234]: Failed password for user")
         self.assertEqual(event.host, "workstation")
-        self.assertEqual(event.event_type, "syslog.sshd")
+        self.assertEqual(event.event_type, "login.failed")
+        self.assertEqual(event.attributes["program"], "sshd")
         self.assertEqual(event.attributes["pid"], 1234)
 
     def test_syslog_file_is_ingested(self) -> None:
@@ -371,7 +372,7 @@ class FoundationTests(unittest.TestCase):
             output = root / "alerts.jsonl"
             state = root / "state.json"
             source.write_text("<34>Sep 23 10:20:30 workstation sshd: Failed password for alice\n", encoding="utf-8")
-            self.assertEqual(run_incremental(source, output, state, input_format="syslog", source="auth"), 1)
+            self.assertEqual(run_incremental(source, output, state, input_format="syslog", source="auth"), 2)
             self.assertEqual(run_incremental(source, output, state, input_format="syslog", source="auth"), 0)
 
     def test_worker_raw_line_id_is_stable_across_checkpoint_reset(self) -> None:
@@ -379,7 +380,7 @@ class FoundationTests(unittest.TestCase):
             root = Path(directory)
             source, output, state, database = (root / name for name in ("events.log", "alerts.jsonl", "state.json", "siem.db"))
             source.write_text("<34>Sep 23 10:20:30 workstation sshd: Failed password for alice\n", encoding="utf-8")
-            self.assertEqual(run_incremental(source, output, state, input_format="syslog", incident_database=database), 1)
+            self.assertEqual(run_incremental(source, output, state, input_format="syslog", incident_database=database), 2)
             state.unlink()
             self.assertEqual(run_incremental(source, output, state, input_format="syslog", incident_database=database), 0)
             self.assertEqual(len(SqliteEventStore(database).list_incidents()), 1)
@@ -470,7 +471,9 @@ class FoundationTests(unittest.TestCase):
                       "EventData": {"Data": [{"Name": "TargetUserName", "#text": "alice"}]}},
             "Message": "An account failed to log on",
         })
-        self.assertEqual(event.event_type, "windows.event.4625")
+        self.assertEqual(event.event_type, "login.failed")
+        self.assertEqual(event.attributes["event_id"], "4625")
+        self.assertEqual(event.attributes["username"], "alice")
         self.assertEqual(event.severity, "medium")
         self.assertEqual(event.attributes["TargetUserName"], "alice")
 
