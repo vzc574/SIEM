@@ -3,11 +3,14 @@
 from datetime import datetime, timedelta
 from typing import Any, Callable, Iterable
 
+from siem.detection.config import RulesConfig, load_rules
 from siem.domain.alerts import Alert
 
 
 LOGIN_EVENT_TYPES = ("login.failed", "login.success")
-# The longest window any rule looks back; callers load this much history.
+# Event types correlation rules consume; the worker reloads recent ones from storage.
+HISTORY_EVENT_TYPES = (*LOGIN_EVENT_TYPES, "privilege.failed")
+# Default longest window; with a rules config use config.max_window_seconds().
 MAX_WINDOW_SECONDS = 300
 
 
@@ -33,8 +36,9 @@ def _burst(
     threshold: int,
     window_seconds: int,
     make_alert: Callable[[str, list[dict[str, Any]]], Alert],
+    event_type: str = "login.failed",
 ) -> list[Alert]:
-    """Sliding-window counter over failed logins grouped by `key`.
+    """Sliding-window counter over `event_type` events grouped by `key`.
 
     After an alert, the group is suppressed for one window so a long attack
     produces one alert per window instead of one per additional failure.
@@ -44,7 +48,7 @@ def _burst(
     suppressed_until: dict[str, datetime] = {}
     alerts: list[Alert] = []
     for event in events:
-        if str(event.get("event_type", "")).lower() != "login.failed":
+        if str(event.get("event_type", "")).lower() != event_type:
             continue
         group = key(event)
         if group is None:
@@ -129,7 +133,35 @@ def correlate_failure_then_success(
     return alerts
 
 
-def correlate(events: Iterable[dict[str, Any]]) -> list[Alert]:
+def correlate_privilege_failures(
+    events: Iterable[dict[str, Any]], *, threshold: int = 3, window_seconds: int = 300
+) -> list[Alert]:
+    """Alert on repeated failed sudo/su authentication by one user."""
+    def make_alert(username: str, recent: list[dict[str, Any]]) -> Alert:
+        return Alert(
+            rule_id="correlation.privilege-failures",
+            title="Repeated privilege escalation failures",
+            severity="high",
+            event_id=str(recent[-1].get("event_id", "unknown")),
+            reason=f"{len(recent)} failed sudo/su authentications by {username} within {window_seconds} seconds.",
+            recommended_action="Confirm with the user; repeated failures can mean password guessing on a compromised account.",
+            evidence={"identity": username, "hosts": sorted({str(item.get("host")) for item in recent if item.get("host")}),
+                      "event_ids": [str(item.get("event_id")) for item in recent]},
+        )
+    return _burst(sorted(events, key=_time), key=_identity, threshold=threshold, window_seconds=window_seconds,
+                  make_alert=make_alert, event_type="privilege.failed")
+
+
+def correlate(events: Iterable[dict[str, Any]], config: RulesConfig | None = None) -> list[Alert]:
+    config = config or load_rules()
     materialized = list(events)
-    return (correlate_failed_logins(materialized) + correlate_source_spray(materialized)
-            + correlate_failure_then_success(materialized))
+    alerts: list[Alert] = []
+    if (rule := config.failed_login_burst).enabled:
+        alerts += correlate_failed_logins(materialized, threshold=rule.threshold, window_seconds=rule.window_seconds)
+    if (rule := config.source_spray).enabled:
+        alerts += correlate_source_spray(materialized, threshold=rule.threshold, window_seconds=rule.window_seconds)
+    if (rule := config.failed_then_success).enabled:
+        alerts += correlate_failure_then_success(materialized, minimum_failures=rule.threshold, window_seconds=rule.window_seconds)
+    if (rule := config.privilege_failures).enabled:
+        alerts += correlate_privilege_failures(materialized, threshold=rule.threshold, window_seconds=rule.window_seconds)
+    return alerts

@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from detector import RULES, main  # noqa: E402
+from detector import describe_rules, load_rules, main  # noqa: E402
 from siem.detection.correlation import correlate  # noqa: E402
 from siem.pipeline.run import create_incidents_for_alerts, process_event_records  # noqa: E402
 from siem.pipeline.worker import run_incremental  # noqa: E402
@@ -103,7 +103,7 @@ class DetectorCliTests(unittest.TestCase):
             self.assertIn("correlation.failed-login-burst", rules)
             self.assertEqual(len(SqliteEventStore(root / "siem.db").list_incidents()), 1)
         self.assertEqual(main(["rules"]), 0)
-        self.assertIn("correlation.source-login-spray", RULES)
+        self.assertIn("correlation.source-login-spray", dict(describe_rules(load_rules())))
 
     def test_incident_helper_returns_group_count(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -9,7 +9,8 @@ import time
 from typing import Callable
 from typing import Any
 
-from siem.detection.correlation import LOGIN_EVENT_TYPES, MAX_WINDOW_SECONDS, _time
+from siem.detection.config import RulesConfig, RulesConfigError, load_rules
+from siem.detection.correlation import HISTORY_EVENT_TYPES, _time
 from siem.ingestion.formats import LogLineError, parse_line
 from siem.ingestion.json_lines import parse_json_record
 from siem.domain.alerts import alert_record_key
@@ -111,17 +112,17 @@ def _normalize_worker_events(events: list[dict[str, Any]]) -> list[dict[str, Any
     return normalized
 
 
-def _login_history(store: SqliteEventStore, events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Recent stored logins that correlation windows may still need."""
+def _login_history(store: SqliteEventStore, events: list[dict[str, Any]], window_seconds: int) -> list[dict[str, Any]]:
+    """Recent stored login/privilege events that correlation windows may still need."""
     times = []
     for event in events:
         try:
             times.append(_time(event))
         except (KeyError, ValueError):
             continue
-    if not times:
+    if not times or window_seconds <= 0:
         return []
-    return store.events_since(min(times) - timedelta(seconds=MAX_WINDOW_SECONDS), event_types=LOGIN_EVENT_TYPES)
+    return store.events_since(min(times) - timedelta(seconds=window_seconds), event_types=HISTORY_EVENT_TYPES)
 
 
 def run_incremental(
@@ -139,12 +140,14 @@ def run_incremental(
     external_max_hashes: int = 10,
     webhook_url: str | None = None,
     webhook_token: str | None = None,
+    rules: RulesConfig | None = None,
 ) -> int:
     """Process only input appended after the durable checkpoint.
 
     With `incident_database`, events are indexed first and correlation also
     sees recent logins from earlier cycles, so slow brute force is detected.
     """
+    rules = rules or load_rules()
     if not input_path.is_file():
         raise FileNotFoundError(f"Input file does not exist: {input_path}")
     lines, new_state = _read_new_lines(input_path, _load_state(state_path, input_path))
@@ -154,11 +157,11 @@ def run_incremental(
     if store and events:
         # The incident database is also the durable event index used by the
         # dashboard. INSERT OR IGNORE makes replay safe after a crash.
-        history = _login_history(store, events)
+        history = _login_history(store, events, rules.max_window_seconds())
         store.append_records(events)
     alerts = process_event_records(events, ioc_database=ioc_database, external_api_key=external_api_key,
                                    external_cache=external_cache, external_max_hashes=external_max_hashes,
-                                   history=history)
+                                   history=history, rules=rules)
     if store:
         # The alerts table's unique key decides what is new: no full re-read
         # of the alert file each cycle.
@@ -207,10 +210,18 @@ def run_forever(
     state_path: Path | None = None,
     interval_seconds: float = 30.0,
     on_cycle: Callable[[int], None] | None = None,
+    rules_path: Path | None = None,
 ) -> None:
+    """Run cycles forever. The rules file is re-read every cycle, so edits apply
+    without a restart; an invalid edit is logged and the last good rules kept."""
     if interval_seconds < 1:
         raise ValueError("interval must be at least one second")
+    rules = load_rules(rules_path)  # fail fast on a bad file at startup
     while True:
+        try:
+            rules = load_rules(rules_path)
+        except (OSError, RulesConfigError) as exc:
+            logger.error("rules reload failed; keeping previous rules: %s", exc)
         try:
             count = run_incremental(
                 input_path, output_path, state_path or output_path.with_suffix(".state.json"),
@@ -219,6 +230,7 @@ def run_forever(
                 external_api_key=external_api_key, external_cache=external_cache,
                 external_max_hashes=external_max_hashes,
                 webhook_url=webhook_url, webhook_token=webhook_token,
+                rules=rules,
             )
         except FileNotFoundError:
             # A newly deployed worker may start before its first collector

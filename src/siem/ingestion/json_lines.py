@@ -41,8 +41,12 @@ def parse_json_record(record: dict[str, Any], *, default_source: str) -> Securit
     if not isinstance(source, str) or not isinstance(event_type, str) or not isinstance(message, str):
         raise JsonLogParseError("source, event_type/type, and message are required strings")
 
-    known_fields = {"source", "event_type", "type", "message", "observed_at", "timestamp", "severity", "host"}
-    attributes = {key: value for key, value in record.items() if key not in known_fields}
+    known_fields = {"source", "event_type", "type", "message", "observed_at", "timestamp", "severity", "host",
+                    "event_id", "attributes"}
+    # Already-normalized records carry an `attributes` object; merge it rather than nesting it.
+    nested = record.get("attributes")
+    attributes = {**(nested if isinstance(nested, dict) else {}),
+                  **{key: value for key, value in record.items() if key not in known_fields}}
     timestamp = record.get("observed_at", record.get("timestamp"))
     return SecurityEvent(
         source=source,

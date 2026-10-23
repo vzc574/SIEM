@@ -1,0 +1,74 @@
+# SIEM detection rules.
+#
+# Copy to rules.toml and point the worker/detector at it:
+#   python3 detector.py worker ... --rules rules.toml      (or set SIEM_RULES=rules.toml)
+#   python3 detector.py check-rules rules.toml              (validate before deploying)
+#
+# Built-in defaults always apply; this file only needs what you change.
+# The worker re-reads the file every cycle, so edits take effect without a
+# restart. If an edit is invalid, the worker logs why and keeps the last good rules.
+
+# --- Per-event rules ---------------------------------------------------------
+
+# [rules.high_severity]          # alert on any high/critical event
+# enabled = true
+
+# [rules.failed_login]           # one medium alert per failed login (noisy on internet-facing SSH)
+# enabled = false
+
+# [rules.suspicious_type]
+# enabled = true
+# event_types = ["malware.detected", "suspicious.process", "ransomware.detected", "credential.theft"]
+
+# --- Correlation (sliding windows) ---------------------------------------------
+# Each rule fires at most once per window per account/IP.
+
+# [correlation.failed_login_burst]   # failures for one account
+# threshold = 5
+# window_seconds = 300
+
+# [correlation.source_spray]         # failures from one IP across any accounts
+# threshold = 10
+# window_seconds = 300
+
+# [correlation.failed_then_success]  # success after `threshold` failures (critical)
+# threshold = 3
+# window_seconds = 300
+
+# [correlation.privilege_failures]   # failed sudo/su passwords by one user
+# threshold = 3
+# window_seconds = 300
+
+# --- Match rules ----------------------------------------------------------------
+# Add your own. Fields:
+#   id, title, event_type     required; event_type accepts globs, e.g. "windows.event.47*"
+#   severity                  low | medium | high | critical (default medium)
+#   message_regex             regex searched in the event message
+#   attributes                exact matches on event attributes, e.g. { username = "root" }
+#   attribute_regex           regex per attribute, e.g. { command = "curl|wget" }
+#   reason                    may use {placeholders} from attributes or the event (host, source, ...)
+#   recommended_action
+#
+# Built-in match rules (disable by id with disabled_match):
+#   privilege.not-in-sudoers, privilege.root-shell, windows.account-created,
+#   windows.admin-group-add, windows.audit-log-cleared
+
+# disabled_match = ["privilege.root-shell"]
+
+# [[match]]
+# id = "web.admin-probe"
+# title = "Requests for admin pages"
+# severity = "medium"
+# event_type = "web.request"
+# attribute_regex = { path = "^/(wp-admin|phpmyadmin|admin)" }
+# reason = "{src_ip} requested {path} ({status})."
+# recommended_action = "Check whether the source is scanning; consider blocking it at the firewall."
+
+# [[match]]
+# id = "privilege.download-as-root"
+# title = "Download tool run as root"
+# severity = "high"
+# event_type = "privilege.sudo"
+# attribute_regex = { command = "(^|/)(curl|wget)( |$)" }
+# reason = "{username} ran '{command}' as {target_user}."
+# recommended_action = "Confirm the download source; attackers often fetch tooling this way."
