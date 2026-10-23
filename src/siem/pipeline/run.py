@@ -17,7 +17,14 @@ from siem.storage.sqlite import SqliteEventStore
 
 def process_event_records(events: list[dict[str, Any]], *, ioc_database: Path | None = None,
                           external_api_key: str | None = None, external_cache: Path | None = None,
-                          external_max_hashes: int = 10):
+                          external_max_hashes: int = 10, history: list[dict[str, Any]] | None = None):
+    """Run every detection stage over `events`.
+
+    `history` holds earlier, already-processed events (e.g. the last few
+    minutes of logins from the database). Correlation sees history plus the
+    new events, so an attack spanning several batches is still detected, but
+    only alerts triggered by a new event are returned.
+    """
     normalized: list[dict[str, Any]] = []
     for event in events:
         if "observed_at" not in event or "event_id" not in event:
@@ -27,7 +34,13 @@ def process_event_records(events: list[dict[str, Any]], *, ioc_database: Path | 
             normalized.append(parsed)
         else:
             normalized.append(event)
-    alerts = detect(normalized) + correlate(normalized)
+    if history:
+        new_ids = {str(event["event_id"]) for event in normalized}
+        context = [event for event in history if str(event["event_id"]) not in new_ids] + normalized
+        correlated = [alert for alert in correlate(context) if alert.event_id in new_ids]
+    else:
+        correlated = correlate(normalized)
+    alerts = detect(normalized) + correlated
     if ioc_database:
         alerts.extend(match_events(normalized, IOCStore(ioc_database)))
     if external_api_key:
@@ -38,28 +51,58 @@ def process_event_records(events: list[dict[str, Any]], *, ioc_database: Path | 
     return deduplicate_alerts(alerts)
 
 
+def alert_record_key(record: dict[str, Any]) -> str:
+    """Identity of one finding: the same rule firing on the same event and indicator.
+
+    Per-event rules are keyed by event, so separate events from one source are
+    never merged; correlation/intel alerts also carry the indicator they matched.
+    """
+    evidence = record.get("evidence") or {}
+    indicator = evidence.get("identity") or evidence.get("value") or evidence.get("sha256") or ""
+    return f"{record.get('rule_id')}|{record.get('event_id')}|{indicator}"
+
+
+def alert_key(alert: Alert) -> str:
+    return alert_record_key({"rule_id": alert.rule_id, "event_id": alert.event_id, "evidence": alert.evidence})
+
+
 def deduplicate_alerts(alerts: list[Alert]) -> list[Alert]:
     unique: list[Alert] = []
     seen: set[str] = set()
     for alert in alerts:
-        identity = alert.evidence.get("identity") or alert.evidence.get("value") or alert.evidence.get("source") or alert.event_id
-        key = f"{alert.rule_id}|{alert.title}|{identity}|{alert.reason}"
+        key = alert_key(alert)
         if key not in seen:
             seen.add(key)
             unique.append(alert)
     return unique
 
 
+def _incident_subject(alert: Alert) -> str:
+    attributes = alert.evidence.get("attributes") or {}
+    return str(alert.evidence.get("host") or alert.evidence.get("identity") or attributes.get("src_ip")
+               or alert.evidence.get("source") or alert.event_id)
+
+
 def create_incidents_for_alerts(alerts: list[Alert], database: Path, *, actor: str = "pipeline") -> int:
+    """Group high/critical alerts by subject into incidents.
+
+    An open incident for the same subject is extended instead of creating a
+    new one each cycle. Returns the number of incidents created or extended.
+    """
     store = SqliteEventStore(database)
     grouped: dict[str, list[Alert]] = {}
     for alert in alerts:
         if alert.severity in {"high", "critical"}:
-            key = str(alert.evidence.get("host") or alert.evidence.get("identity") or alert.event_id)
-            grouped.setdefault(key, []).append(alert)
-    for key, group in grouped.items():
+            grouped.setdefault(_incident_subject(alert), []).append(alert)
+    for subject, group in grouped.items():
         severity = "critical" if any(alert.severity == "critical" for alert in group) else "high"
-        store.create_incident(f"Automated investigation: {key}", severity, [str(alert.alert_id) for alert in group], actor=actor)
+        title = f"Automated investigation: {subject}"
+        alert_ids = [str(alert.alert_id) for alert in group]
+        existing = store.find_open_incident(title)
+        if existing:
+            store.attach_alerts(existing["incident_id"], alert_ids, actor=actor, severity=severity)
+        else:
+            store.create_incident(title, severity, alert_ids, actor=actor)
     return len(grouped)
 
 
