@@ -43,13 +43,12 @@ PYTHONPATH=src python3 -m siem serve \
 
 Next step
 ---------
-Deploy to AWS EC2 first using Docker Compose. Configure a real strong
-SIEM_API_KEY, an AWS security group allowing SSH from your IP and HTTP/HTTPS,
-then run docker compose up -d --build. Do not use the temporary local API key
-in production. Add TLS through the Nginx secure overlay after a domain and
-certificate are available.
+Deploy to AWS EC2 with deploy/aws/setup-ec2.sh (see deploy/aws/README.md).
+The script has been syntax-checked and ShellChecked but not yet run against a
+real instance; try it on a test instance first.
 
 Important limitation
 --------------------
-The project is application-complete but production infrastructure still needs
-to be provisioned and security/load/recovery tested.
+Not yet load-tested or put through a restore drill on real infrastructure.
+SQLite suits a single SIEM server; many high-volume sources would need a
+different storage backend.

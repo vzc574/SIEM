@@ -1,4 +1,6 @@
-# SIME / SIEM
+# SIEM
+
+[![CI](https://github.com/vzc574/SIEM/actions/workflows/ci.yml/badge.svg)](https://github.com/vzc574/SIEM/actions/workflows/ci.yml)
 
 A defensive security information and event management platform for collecting
 logs, detecting suspicious activity, analyzing malware safely, and producing
@@ -540,6 +542,16 @@ The worker sends new alerts at or above `SIEM_NOTIFY_MIN_SEVERITY` (default
 Telegram (`SIEM_TELEGRAM_BOT_TOKEN` + `SIEM_TELEGRAM_CHAT_ID`) and email
 (`SIEM_SMTP_*`; STARTTLS is required, or implicit TLS on port 465). See
 `.env.example`. A failing channel is logged and does not block the others.
+
+### CI and deployment (SIEM-8)
+
+GitHub Actions (`.github/workflows/ci.yml`) runs the test suite on Python
+3.11-3.13, validates `rules.example.toml`, builds the Docker image, checks
+that the container starts and enforces authentication, and verifies that the
+TLS overlay does not publish port 8080.
+
+To deploy on AWS EC2 (Ubuntu 24.04) with HTTPS, backups and certificate
+renewal, follow [deploy/aws/README.md](deploy/aws/README.md).
 
 ## Configuration
 
