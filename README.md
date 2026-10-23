@@ -334,6 +334,20 @@ applies a reverse-proxy request limit. Do not commit private keys.
 
 ## Index and search events
 
+### Storage module (`database.py`, SIEM-2)
+
+```bash
+python3 database.py init data/siem.db
+python3 database.py index data/events.jsonl --database data/siem.db
+python3 database.py stats data/siem.db      # counts, severities, top failed-login IPs/users
+```
+
+The database runs in WAL mode so the API and worker can share it. Event times
+are stored as UTC ISO-8601 (older databases are migrated on open), so ordering
+and retention compare real time. `username` and `src_ip` are indexed
+generated columns used for correlation lookback and dashboard pivots.
+
+
 ```bash
 PYTHONPATH=src python3 -m siem index-events data/events.jsonl
 PYTHONPATH=src python3 -m siem search --text login --severity medium
@@ -350,6 +364,20 @@ PYTHONPATH=src python3 -m siem ingest-syslog /var/log/auth.log \
 
 The collector reads the source file only and normalizes supported RFC 3164
 records into the common event format.
+
+### Ingestion module (`ingestion.py`, SIEM-1)
+
+```bash
+python3 ingestion.py ingest /var/log/auth.log --format syslog --output data/events.jsonl
+python3 ingestion.py agent /var/log/auth.log --format syslog --output data/events.jsonl
+```
+
+Formats: `syslog`, `windows-json`, `ufw`, `access`, `jsonl`. sshd
+`Failed …`/`Accepted …` lines and Windows events 4625/4624 (logon types 2, 3,
+10) become `login.failed`/`login.success` with `username` and `src_ip`.
+Timestamps are stored in UTC. Malformed lines are reported and skipped
+(`--strict` fails instead). The agent tails the file with a byte-offset and
+inode checkpoint, so it resumes after restarts and handles log rotation.
 
 ## Correlate events
 
