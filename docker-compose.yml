@@ -22,6 +22,16 @@ services:
       # Optional rules file inside the container, e.g. /app/data/rules.toml
       # (copy it into the data volume: docker compose cp rules.toml worker:/app/data/rules.toml)
       SIEM_RULES: ${SIEM_RULES:-}
+      SIEM_NOTIFY_MIN_SEVERITY: ${SIEM_NOTIFY_MIN_SEVERITY:-high}
+      SIEM_SLACK_WEBHOOK_URL: ${SIEM_SLACK_WEBHOOK_URL:-}
+      SIEM_TELEGRAM_BOT_TOKEN: ${SIEM_TELEGRAM_BOT_TOKEN:-}
+      SIEM_TELEGRAM_CHAT_ID: ${SIEM_TELEGRAM_CHAT_ID:-}
+      SIEM_SMTP_HOST: ${SIEM_SMTP_HOST:-}
+      SIEM_SMTP_PORT: ${SIEM_SMTP_PORT:-587}
+      SIEM_SMTP_USER: ${SIEM_SMTP_USER:-}
+      SIEM_SMTP_PASSWORD: ${SIEM_SMTP_PASSWORD:-}
+      SIEM_SMTP_FROM: ${SIEM_SMTP_FROM:-}
+      SIEM_SMTP_TO: ${SIEM_SMTP_TO:-}
     volumes:
       - siem-data:/app/data
       - siem-reports:/app/reports

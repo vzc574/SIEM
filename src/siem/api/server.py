@@ -1,12 +1,14 @@
 """HTTP API and dashboard backend."""
 
 from collections import defaultdict, deque
+import csv
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import hashlib
 import hmac
+import io
 import ipaddress
 import json
 import os
@@ -150,6 +152,29 @@ class AlertFileSync:
         return imported
 
 
+ALERT_CSV_COLUMNS = ("created_at", "severity", "rule_id", "title", "reason", "event_id", "recommended_action", "alert_id")
+EVENT_CSV_COLUMNS = ("observed_at", "severity", "source", "host", "event_type", "message", "attributes", "event_id")
+
+
+def _csv_cell(value: object) -> str:
+    text = json.dumps(value, sort_keys=True) if isinstance(value, (dict, list)) else "" if value is None else str(value)
+    # Neutralize spreadsheet formulas: log data is attacker-controlled.
+    return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
+
+
+def render_csv(rows: list[dict[str, object]], columns: tuple[str, ...]) -> str:
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(columns)
+    for row in rows:
+        writer.writerow([_csv_cell(row.get(column)) for column in columns])
+    return buffer.getvalue()
+
+
+def timeline_bucket_minutes(hours: int) -> int:
+    return 60 if hours <= 24 else 360 if hours <= 24 * 7 else 1440
+
+
 def render_metrics(metrics: dict[str, int]) -> str:
     lines = ["# HELP siem_up SIEM API availability.", "# TYPE siem_up gauge", "siem_up 1"]
     for name, value in metrics.items():
@@ -269,6 +294,17 @@ def make_handler(database: Path, api_key: str | None = None, alert_paths: list[P
             self.end_headers()
             self.wfile.write(encoded)
 
+        def _download(self, filename: str, body: str) -> None:
+            encoded = body.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/csv; charset=utf-8")
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+            self.send_header("Content-Length", str(len(encoded)))
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(encoded)
+
         def _metrics(self) -> None:
             body = render_metrics(store.metrics()).encode("utf-8")
             self.send_response(200)
@@ -323,12 +359,41 @@ def make_handler(database: Path, api_key: str | None = None, alert_paths: list[P
                 except (OSError, ValueError):
                     self._json(400, {"error": "invalid stats query"})
                 return
+            if parsed.path == "/stats/timeline":
+                try:
+                    hours = max(1, min(int(parse_qs(parsed.query).get("hours", [24])[0]), 24 * 30))
+                except ValueError:
+                    self._json(400, {"error": "hours must be an integer"})
+                    return
+                alert_sync.sync()
+                minutes = timeline_bucket_minutes(hours)
+                since = datetime.now(timezone.utc) - timedelta(hours=hours)
+                self._json(200, {"hours": hours, "bucket_minutes": minutes,
+                                 "buckets": store.timeline(since=since, bucket_minutes=minutes)})
+                return
+            if parsed.path in {"/alerts.csv", "/events.csv"}:
+                query = parse_qs(parsed.query)
+                text, severity = query.get("text", [None])[0], query.get("severity", [None])[0]
+                try:
+                    limit = max(1, min(int(query.get("limit", [10000])[0]), 10000))
+                except ValueError:
+                    self._json(400, {"error": "limit must be an integer"})
+                    return
+                stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+                if parsed.path == "/alerts.csv":
+                    alert_sync.sync()
+                    rows = store.search_alerts(text=text, severity=severity, rule_id=query.get("rule", [None])[0], limit=limit)
+                    self._download(f"siem-alerts-{stamp}.csv", render_csv(rows, ALERT_CSV_COLUMNS))
+                else:
+                    rows = store.search(text=text, severity=severity, limit=limit)
+                    self._download(f"siem-events-{stamp}.csv", render_csv(rows, EVENT_CSV_COLUMNS))
+                return
             if parsed.path == "/events":
                 query = parse_qs(parsed.query)
                 text = query.get("text", [None])[0]
                 severity = query.get("severity", [None])[0]
                 try:
-                    limit = int(query.get("limit", [100])[0])
+                    limit = min(int(query.get("limit", [100])[0]), 1000)
                     events = store.search(text=text, severity=severity, limit=limit)
                 except (TypeError, ValueError):
                     self._json(400, {"error": "limit must be an integer"})

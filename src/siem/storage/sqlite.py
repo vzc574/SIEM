@@ -179,7 +179,7 @@ class SqliteEventStore:
             clauses.append("severity = ?")
             parameters.append(severity.lower())
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
-        parameters.append(max(1, min(limit, 1000)))
+        parameters.append(max(1, min(limit, 10000)))
         with self._connect() as connection:
             rows = connection.execute(
                 "SELECT * FROM security_events" + where + " ORDER BY observed_at DESC LIMIT ?",
@@ -285,6 +285,31 @@ class SqliteEventStore:
             rules = connection.execute(f"SELECT rule_id, COUNT(*) AS n FROM alerts{where} GROUP BY rule_id ORDER BY n DESC, rule_id LIMIT 10",
                                        parameters).fetchall()
         return {"by_severity": {row[0]: row[1] for row in severities}, "by_rule": {row[0]: row[1] for row in rules}}
+
+    def timeline(self, *, since: datetime, bucket_minutes: int) -> list[dict[str, Any]]:
+        """Alerts by severity and failed logins per time bucket, zero-filled, oldest first."""
+        if bucket_minutes < 1:
+            raise ValueError("bucket_minutes must be positive")
+        size = bucket_minutes * 60
+        start = int(since.timestamp()) // size * size
+        end = int(datetime.now(timezone.utc).timestamp()) // size * size
+        bucket = f"CAST(strftime('%s', substr({{column}}, 1, 19)) AS INTEGER) / {size} * {size}"
+        with self._connect() as connection:
+            alert_rows = connection.execute(
+                f"SELECT {bucket.format(column='created_at')} AS b, severity, COUNT(*) FROM alerts "
+                "WHERE created_at >= ? GROUP BY b, severity", (to_utc(since),)).fetchall()
+            login_rows = connection.execute(
+                f"SELECT {bucket.format(column='observed_at')} AS b, COUNT(*) FROM security_events "
+                "WHERE observed_at >= ? AND event_type = 'login.failed' GROUP BY b", (to_utc(since),)).fetchall()
+        buckets = {moment: {"start": datetime.fromtimestamp(moment, timezone.utc).isoformat(), "alerts": {}, "failed_logins": 0}
+                   for moment in range(start, end + size, size)}
+        for moment, severity, count in alert_rows:
+            if moment in buckets:
+                buckets[moment]["alerts"][severity] = count
+        for moment, count in login_rows:
+            if moment in buckets:
+                buckets[moment]["failed_logins"] = count
+        return list(buckets.values())
 
     # --- dashboard users and sessions -------------------------------------
 

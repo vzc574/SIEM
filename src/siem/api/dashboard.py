@@ -15,12 +15,14 @@ DASHBOARD_HTML = r'''<!doctype html>
     header { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.5rem; padding:1.35rem 1.5rem; border-radius:16px; color:white; background:linear-gradient(135deg,#172554,#175cd3 58%,#7f56d9); box-shadow:0 12px 30px #175cd333 } h1 { margin:.2rem 0; letter-spacing:-.03em } header .muted { color:#dbeafe } h2 { margin-top:2rem; letter-spacing:-.02em } h3 { margin:0 0 .8rem; font-size:.95rem }
     button,input,select { font:inherit; border:1px solid #cfd5df; border-radius:8px; padding:.58rem .75rem; background:white } button { cursor:pointer; background:var(--blue); color:white; border-color:var(--blue); transition:transform .15s,box-shadow .15s } button:hover { transform:translateY(-1px); box-shadow:0 4px 12px #175cd344 } header button { background:#ffffff1f; border-color:#ffffff66 } header input { background:#ffffffee }
     .grid { display:grid; grid-template-columns:repeat(4,1fr); gap:1rem } .grid.panels { grid-template-columns:repeat(2,1fr); margin-top:1rem } .card { position:relative; overflow:hidden; background:var(--panel); border:1px solid #e6eaf2; border-radius:14px; padding:1.1rem; box-shadow:0 5px 18px #1018280d } .card:after { content:""; position:absolute; left:0; right:0; bottom:0; height:3px; background:linear-gradient(90deg,var(--blue),var(--purple)) } .number { font-size:2.15rem; font-weight:750; margin-top:.35rem }
-    .bar-row { display:grid; grid-template-columns:minmax(7rem,38%) 1fr 3rem; gap:.6rem; align-items:center; margin:.35rem 0; font-size:.88rem } .bar-row code { overflow:hidden; text-overflow:ellipsis; white-space:nowrap } .bar { height:.6rem; border-radius:999px; background:var(--blue); min-width:2px } .bar.critical,.bar.high { background:var(--red) } .bar.medium { background:var(--orange) } .bar.low { background:var(--green) } .bar-row .count { text-align:right; font-variant-numeric:tabular-nums }
+    .bar-row { display:grid; grid-template-columns:minmax(7rem,38%) 1fr 3rem; gap:.6rem; align-items:center; margin:.35rem 0; font-size:.88rem } .bar-row code { overflow:hidden; text-overflow:ellipsis; white-space:nowrap } .bar { height:.6rem; border-radius:999px; background:var(--blue); min-width:2px } .bar.critical { background:#7a271a } .bar.high { background:var(--red) } .bar.medium { background:#f79009 } .bar.low { background:var(--green) } .bar-row .count { text-align:right; font-variant-numeric:tabular-nums }
     .toolbar { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; margin:1rem 0 } .muted { color:var(--muted) } .error { color:var(--red); min-height:1.4rem }
     .nav { display:flex; gap:.5rem; align-items:center; margin:1rem 0 } .nav button { background:#eef4ff; color:var(--blue); border-color:#c7d7fe } .nav button.active { background:var(--blue); color:white } .nav #role-label { margin-left:auto; font-size:.85rem } .view { display:none } .view.active { display:block }
     .table-wrap { overflow-x:auto; border:1px solid #e6eaf2; border-radius:12px; box-shadow:0 5px 18px #1018280d } table { width:100%; border-collapse:collapse; background:var(--panel) } th,td { text-align:left; padding:.8rem; border-bottom:1px solid var(--line); vertical-align:top } th { white-space:nowrap; color:var(--muted); font-size:.78rem; text-transform:uppercase; letter-spacing:.06em; background:#f8fafc } tr:last-child td { border-bottom:0 } tbody tr:hover { background:#f8fbff }
     .high,.critical { color:var(--red); font-weight:700 } .medium { color:var(--orange); font-weight:700 } .status { color:var(--green); font-weight:700 } dialog { border:0; border-radius:14px; padding:1.5rem; min-width:min(580px,90vw); box-shadow:0 24px 70px #10182844 } dialog::backdrop { background:#10182888; backdrop-filter:blur(3px) } pre { max-height:260px; overflow:auto; padding:1rem; border-radius:8px; background:#101828; color:#d1fadf; font-size:.8rem } .toolbar { background:#ffffffaa; padding:.45rem; border-radius:10px }
     .badge { display:inline-block; padding:.22rem .55rem; border-radius:999px; font-size:.75rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; background:#eef2ff; color:#3538cd } .badge.high,.badge.critical { background:#fef3f2; color:var(--red) } .badge.medium { background:#fffaeb; color:var(--orange) } .badge.low { background:#ecfdf3; color:var(--green) }
+    .chart-card { margin-top:1rem } .chart-head { display:flex; flex-wrap:wrap; gap:.75rem; align-items:center; justify-content:space-between; margin-bottom:.6rem } .chart-head h3 { margin:0 } .legend { display:flex; flex-wrap:wrap; gap:.8rem; font-size:.8rem; color:var(--muted) } .legend i { display:inline-block; width:.7rem; height:.7rem; border-radius:3px; margin-right:.3rem; vertical-align:-1px }
+    #timeline svg { width:100%; height:auto; display:block } #timeline .axis { fill:var(--muted); font-size:11px } #timeline .grid-line { stroke:var(--line) } .sev-critical { fill:#7a271a; background:#7a271a } .sev-high { fill:var(--red); background:var(--red) } .sev-medium { fill:#f79009; background:#f79009 } .sev-low { fill:var(--green); background:var(--green) } .sev-info { fill:#98a2b3; background:#98a2b3 } .logins-line { fill:none; stroke:var(--purple); stroke-width:2 } .logins-key { background:var(--purple) }
     .login { max-width:420px; margin:3rem auto } .login form { display:grid; gap:.75rem } .login label { display:grid; gap:.3rem; font-size:.9rem } .login details { margin-top:1rem; font-size:.9rem } .login details .toolbar { margin:.6rem 0 0; padding:0; background:none } [hidden] { display:none !important }
     @media (max-width:760px) { header { align-items:flex-start; flex-direction:column } .grid, .grid.panels { grid-template-columns:repeat(2,1fr) } }
     @media (max-width:520px) { .grid.panels { grid-template-columns:1fr } }
@@ -36,19 +38,21 @@ DASHBOARD_HTML = r'''<!doctype html>
   <nav id="app-nav" class="nav" aria-label="Dashboard views"><button data-view="overview">Overview</button><button data-view="triage">Analyst triage</button><button data-view="operations">Operations</button><span id="role-label" class="muted"></span></nav>
   <div id="error" class="error" role="alert"></div>
   <section id="overview" class="view">
-    <section class="grid"><div class="card"><div>API status</div><div id="status" class="number">…</div></div><div class="card"><div>Security events</div><div id="event-count" class="number">…</div></div><div class="card"><div>Open incidents</div><div id="incident-count" class="number">…</div></div><div class="card"><div>Alerts (24h)</div><div id="alert-count" class="number">…</div></div></section>
+    <div class="toolbar"><label>Time range <select id="range"><option value="24">Last 24 hours</option><option value="168">Last 7 days</option><option value="720">Last 30 days</option></select></label></div>
+    <section class="grid"><div class="card"><div>API status</div><div id="status" class="number">…</div></div><div class="card"><div>Security events</div><div id="event-count" class="number">…</div></div><div class="card"><div>Open incidents</div><div id="incident-count" class="number">…</div></div><div class="card"><div>Alerts (<span class="range-label">24h</span>)</div><div id="alert-count" class="number">…</div></div></section>
+    <div class="card chart-card"><div class="chart-head"><h3>Alerts over time</h3><div class="legend"><span><i class="sev-critical"></i>critical</span><span><i class="sev-high"></i>high</span><span><i class="sev-medium"></i>medium</span><span><i class="sev-low"></i>low</span><span><i class="logins-key"></i>failed logins</span></div></div><div id="timeline" class="muted">…</div></div>
     <section class="grid panels">
-      <div class="card"><h3>Alerts by severity (24h)</h3><div id="alert-severity" class="muted">…</div></div>
-      <div class="card"><h3>Alerts by rule (24h)</h3><div id="alert-rules" class="muted">…</div></div>
-      <div class="card"><h3>Top failed-login sources (24h)</h3><div id="top-ips" class="muted">…</div></div>
-      <div class="card"><h3>Most targeted accounts (24h)</h3><div id="top-users" class="muted">…</div></div>
+      <div class="card"><h3>Alerts by severity (<span class="range-label">24h</span>)</h3><div id="alert-severity" class="muted">…</div></div>
+      <div class="card"><h3>Alerts by rule (<span class="range-label">24h</span>)</h3><div id="alert-rules" class="muted">…</div></div>
+      <div class="card"><h3>Top failed-login sources (<span class="range-label">24h</span>)</h3><div id="top-ips" class="muted">…</div></div>
+      <div class="card"><h3>Most targeted accounts (<span class="range-label">24h</span>)</h3><div id="top-users" class="muted">…</div></div>
     </section>
   </section>
   <section id="triage" class="view"><h2>Alerts</h2>
-  <div class="toolbar"><input id="search" type="search" placeholder="Search alerts"><select id="severity"><option value="">All severities</option><option>critical</option><option>high</option><option>medium</option><option>low</option></select><span id="updated" class="muted"></span></div>
+  <div class="toolbar"><input id="search" type="search" placeholder="Search alerts"><select id="severity"><option value="">All severities</option><option>critical</option><option>high</option><option>medium</option><option>low</option></select><button id="export-alerts">Export CSV</button><span id="updated" class="muted"></span></div>
   <div class="table-wrap"><table><thead><tr><th>Severity</th><th>Title</th><th>Reason</th><th>Rule</th><th>Created</th></tr></thead><tbody id="alerts"><tr><td colspan="5">Loading…</td></tr></tbody></table></div>
   <h2>Open incidents</h2><div class="table-wrap"><table><thead><tr><th>Severity</th><th>Title</th><th>Status</th><th>Assignee</th><th>Updated</th></tr></thead><tbody id="incidents"><tr><td colspan="5">Loading…</td></tr></tbody></table></div></section>
-  <section id="operations" class="view"><h2>Event search</h2><div class="toolbar"><input id="event-search" type="search" placeholder="Search event text, type, or source"><select id="event-severity"><option value="">All severities</option><option>critical</option><option>high</option><option>medium</option><option>low</option></select><button id="search-events">Search</button></div>
+  <section id="operations" class="view"><h2>Event search</h2><div class="toolbar"><input id="event-search" type="search" placeholder="Search event text, type, or source"><select id="event-severity"><option value="">All severities</option><option>critical</option><option>high</option><option>medium</option><option>low</option></select><button id="search-events">Search</button><button id="export-events">Export CSV</button></div>
   <div class="table-wrap"><table><thead><tr><th>Time</th><th>Severity</th><th>Source</th><th>Type</th><th>Message</th></tr></thead><tbody id="events"><tr><td colspan="5">Search for events.</td></tr></tbody></table></div></section>
   <dialog id="incident-dialog"><form method="dialog"><h2>Incident</h2><pre id="incident-detail"></pre><label>Status <select id="incident-status"><option>open</option><option>investigating</option><option>resolved</option><option>closed</option></select></label><br><label>Assignee <input id="incident-assignee"></label><p id="incident-error" class="error"></p><p><button id="save-incident" value="default">Save</button> <button>Cancel</button></p></form></dialog>
   <script src="/dashboard.js"></script>
@@ -86,6 +90,87 @@ function bars(target, rows, {severityColors = false} = {}) {
   $(target).innerHTML = rows.map(row => `<div class="bar-row"><code title="${esc(row.label)}">${esc(row.label)}</code>`
     + `<div class="bar ${severityColors ? esc(row.label) : ''}" style="width:${(row.count / max) * 100}%"></div>`
     + `<span class="count">${esc(row.count)}</span></div>`).join('') || 'Nothing in this window.';
+}
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function svg(tag, attributes = {}, text) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function bucketLabel(iso, minutes) {
+  const date = new Date(iso);
+  return minutes < 1440 ? date.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) + (minutes > 60 ? ` ${date.getDate()}/${date.getMonth() + 1}` : '')
+                        : date.toLocaleDateString([], {day: 'numeric', month: 'short'});
+}
+
+function renderTimeline(data) {
+  const buckets = data.buckets || [];
+  const target = $('timeline');
+  target.textContent = '';
+  const totals = buckets.map(b => Object.values(b.alerts).reduce((sum, n) => sum + n, 0));
+  const maxAlerts = Math.max(1, ...totals);
+  const maxLogins = Math.max(1, ...buckets.map(b => b.failed_logins));
+  if (!totals.some(Boolean) && !buckets.some(b => b.failed_logins)) {
+    target.className = 'muted';
+    target.textContent = 'No alerts or failed logins in this window.';
+    return;
+  }
+  target.className = '';
+  const width = 1000, height = 220, left = 36, right = 40, top = 10, bottom = 26;
+  const plotWidth = width - left - right, plotHeight = height - top - bottom;
+  const step = plotWidth / Math.max(1, buckets.length);
+  const chart = svg('svg', {viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': 'Alerts per time bucket by severity, with failed logins'});
+  for (const fraction of [0, 0.5, 1]) {
+    const y = top + plotHeight * (1 - fraction);
+    chart.append(svg('line', {x1: left, x2: width - right, y1: y, y2: y, class: 'grid-line'}));
+    chart.append(svg('text', {x: left - 6, y: y + 4, 'text-anchor': 'end', class: 'axis'}, Math.round(maxAlerts * fraction)));
+  }
+  chart.append(svg('text', {x: width - right + 6, y: top + 4, class: 'axis'}, maxLogins));
+  const labelEvery = Math.max(1, Math.ceil(buckets.length / 8));
+  const points = [];
+  buckets.forEach((bucket, index) => {
+    const x = left + index * step;
+    let y = top + plotHeight;
+    for (const severity of ['low', 'medium', 'high', 'critical']) {
+      const count = bucket.alerts[severity] || 0;
+      if (!count) continue;
+      const barHeight = (count / maxAlerts) * plotHeight;
+      y -= barHeight;
+      const bar = svg('rect', {x: x + step * 0.15, y, width: Math.max(1, step * 0.7), height: barHeight, class: `sev-${severity}`});
+      bar.append(svg('title', {}, `${bucketLabel(bucket.start, data.bucket_minutes)}: ${count} ${severity}`));
+      chart.append(bar);
+    }
+    points.push(`${x + step / 2},${top + plotHeight * (1 - bucket.failed_logins / maxLogins)}`);
+    if (index % labelEvery === 0) {
+      chart.append(svg('text', {x: x + step / 2, y: height - 8, 'text-anchor': 'middle', class: 'axis'}, bucketLabel(bucket.start, data.bucket_minutes)));
+    }
+  });
+  const line = svg('polyline', {points: points.join(' '), class: 'logins-line'});
+  line.append(svg('title', {}, `Failed logins per bucket (right axis, max ${maxLogins})`));
+  chart.append(line);
+  target.append(chart);
+}
+
+async function download(path) {
+  try {
+    const response = await request(path);
+    const name = (response.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/)?.[1] || 'export.csv';
+    const url = URL.createObjectURL(await response.blob());
+    const link = Object.assign(document.createElement('a'), {href: url, download: name});
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) {
+    $('error').textContent = `Export failed: ${error.message}`;
+  }
+}
+
+function filterQuery(textId, severityId) {
+  return `text=${encodeURIComponent($(textId).value)}&severity=${encodeURIComponent($(severityId).value)}`;
 }
 
 function renderStats(stats) {
@@ -145,8 +230,9 @@ async function load() {
   }
   showSignedIn(true);
   try {
-    const [health, metricsText, stats, alerts, incidents, me] = await Promise.all([
-      get('/health'), text('/metrics'), get('/stats?hours=24'),
+    const hours = $('range').value;
+    const [health, metricsText, stats, timeline, alerts, incidents, me] = await Promise.all([
+      get('/health'), text('/metrics'), get(`/stats?hours=${hours}`), get(`/stats/timeline?hours=${hours}`),
       get(`/alerts?limit=100&text=${encodeURIComponent($('search').value)}&severity=${encodeURIComponent($('severity').value)}`),
       get('/incidents?status=open&limit=100'), get('/me'),
     ]);
@@ -157,7 +243,10 @@ async function load() {
     $('status').className = 'number status';
     $('event-count').textContent = metrics.security_events ?? '0';
     $('incident-count').textContent = metrics.open_incidents ?? '0';
+    const label = {24: '24h', 168: '7 days', 720: '30 days'}[hours] || `${hours}h`;
+    document.querySelectorAll('.range-label').forEach(node => { node.textContent = label; });
     renderStats(stats);
+    renderTimeline(timeline);
     renderAlerts(alerts.alerts || []);
     renderIncidents(incidents.incidents || []);
     $('updated').textContent = `Updated ${new Date().toLocaleTimeString()}`;
@@ -194,6 +283,9 @@ $('refresh').addEventListener('click', load);
 $('search').addEventListener('input', load);
 $('severity').addEventListener('change', load);
 $('search-events').addEventListener('click', searchEvents);
+$('range').addEventListener('change', load);
+$('export-alerts').addEventListener('click', () => download(`/alerts.csv?${filterQuery('search', 'severity')}`));
+$('export-events').addEventListener('click', () => download(`/events.csv?${filterQuery('event-search', 'event-severity')}`));
 $('save-incident').addEventListener('click', async event => {
   event.preventDefault();
   const id = $('incident-dialog').dataset.id;

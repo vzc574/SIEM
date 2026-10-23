@@ -526,6 +526,21 @@ SIEM_INGEST_KEY=<key> python3 ingestion.py agent /var/log/auth.log --format sysl
 .\deploy\windows\siem-collector.ps1 -SiemUrl https://siem.example.com
 ```
 
+### Timeline, CSV export and notifications (SIEM-7)
+
+The Overview has a time-range selector (24 hours, 7 days, 30 days) and an
+"Alerts over time" chart (stacked by severity, with failed logins as a line),
+served by `GET /stats/timeline?hours=N`. "Export CSV" on the alert and event
+tables downloads `/alerts.csv` and `/events.csv` with the current filters (up
+to 10,000 rows); cells that start with `=`, `+`, `-` or `@` are prefixed with
+`'` so log data cannot run as spreadsheet formulas.
+
+The worker sends new alerts at or above `SIEM_NOTIFY_MIN_SEVERITY` (default
+`high`) to every configured channel: Slack (`SIEM_SLACK_WEBHOOK_URL`),
+Telegram (`SIEM_TELEGRAM_BOT_TOKEN` + `SIEM_TELEGRAM_CHAT_ID`) and email
+(`SIEM_SMTP_*`; STARTTLS is required, or implicit TLS on port 465). See
+`.env.example`. A failing channel is logged and does not block the others.
+
 ## Configuration
 
 The application reads these optional environment variables:
