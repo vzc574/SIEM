@@ -12,6 +12,28 @@ class WindowsEventError(ValueError):
     """Raised when an exported Windows event cannot be normalized."""
 
 
+# 4624 is extremely noisy (services, scheduled tasks); only interactive,
+# network, and remote-interactive logons are treated as user logins.
+_USER_LOGON_TYPES = {"2", "3", "10"}
+
+
+def _login_event_type(event_id: str, data: dict[str, Any]) -> str | None:
+    if event_id == "4625":
+        return "login.failed"
+    if event_id == "4624" and str(data.get("LogonType", "")) in _USER_LOGON_TYPES:
+        return "login.success"
+    return None
+
+
+def _login_fields(data: dict[str, Any]) -> dict[str, Any]:
+    fields: dict[str, Any] = {}
+    if data.get("TargetUserName") not in (None, "", "-"):
+        fields["username"] = str(data["TargetUserName"])
+    if data.get("IpAddress") not in (None, "", "-"):
+        fields["src_ip"] = str(data["IpAddress"])
+    return fields
+
+
 def parse_windows_event(record: dict[str, Any], *, source: str = "windows-eventlog") -> SecurityEvent:
     try:
         system = record["Event"]["System"]
@@ -33,14 +55,16 @@ def parse_windows_event(record: dict[str, Any], *, source: str = "windows-eventl
             data[str(item["Name"])] = item.get("#text", item.get("Value"))
     message = str(record.get("Message") or f"Windows event {event_id} from {provider}")
     severity = "medium" if event_id in {"4625", "4688", "4104"} else "info"
+    login_type = _login_event_type(event_id, data)
     return SecurityEvent(
         source=source,
-        event_type=f"windows.event.{event_id}",
+        event_type=login_type or f"windows.event.{event_id}",
         message=message,
-        observed_at=timestamp,
+        observed_at=timestamp.astimezone(timezone.utc),
         severity=severity,
         host=computer,
-        attributes={"event_id": event_id, "provider": provider, **data},
+        attributes={"event_id": event_id, "provider": provider, **data,
+                    **(_login_fields(data) if login_type else {})},
     )
 
 
