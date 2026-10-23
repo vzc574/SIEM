@@ -7,6 +7,11 @@ and runs a tailing agent that follows a live log file.
 Examples:
     python ingestion.py ingest /var/log/auth.log --format syslog --output data/events.jsonl
     python ingestion.py agent /var/log/auth.log --format syslog --output data/events.jsonl
+    SIEM_INGEST_KEY=... python ingestion.py agent /var/log/auth.log --format syslog \
+        --ship-to https://siem.example.com      # remote host -> central SIEM /ingest
+
+Windows hosts use deploy/windows/siem-collector.ps1, which posts to the same
+/ingest endpoint.
 
 sshd and Windows logon events are normalized to `login.failed` /
 `login.success` with `username` and `src_ip`, which the detection engine
@@ -14,12 +19,13 @@ sshd and Windows logon events are normalized to `login.failed` /
 """
 
 import argparse
+import os
 from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
-from siem.ingestion.agent import PollResult, follow, poll  # noqa: E402
+from siem.ingestion.agent import PollResult, follow, http_sink, poll  # noqa: E402
 from siem.ingestion.formats import PARSERS, LogLineError, parse_line  # noqa: E402
 from siem.storage.jsonl import JsonlEventStore  # noqa: E402
 
@@ -65,6 +71,9 @@ def main(argv: list[str] | None = None) -> int:
     commands.choices["ingest"].add_argument("--strict", action="store_true", help="fail on the first bad line")
     commands.choices["agent"].add_argument("--state", type=Path, help="checkpoint file (default: <output>.<input>.state.json)")
     commands.choices["agent"].add_argument("--interval", type=float, default=5.0)
+    commands.choices["agent"].add_argument("--ship-to", metavar="URL",
+                                           help="send events to a SIEM's /ingest endpoint instead of --output "
+                                                "(API key with the 'ingest' role in $SIEM_INGEST_KEY)")
     args = parser.parse_args(argv)
     source = args.source or args.input.name
 
@@ -79,10 +88,21 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     state = args.state or args.output.with_name(f"{args.output.stem}.{args.input.name}.state.json")
-    print(f"agent following {args.input} ({args.input_format}) -> {args.output}")
+    sink = None
+    if args.ship_to:
+        api_key = os.getenv("SIEM_INGEST_KEY")
+        if not api_key:
+            print("--ship-to needs the ingest API key in $SIEM_INGEST_KEY", file=sys.stderr)
+            return 1
+        try:
+            sink = http_sink(args.ship_to, api_key)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+    print(f"agent following {args.input} ({args.input_format}) -> {args.ship_to or args.output}")
     try:
         follow(args.input, args.output, state, input_format=args.input_format, source=source,
-               interval_seconds=args.interval, on_poll=_report)
+               interval_seconds=args.interval, on_poll=_report, sink=sink)
     except KeyboardInterrupt:
         print("agent stopped")
     except (OSError, ValueError) as exc:

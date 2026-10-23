@@ -494,6 +494,38 @@ recorded as a `login.success`/`login.failed` security event. API keys remain
 available for scripts. For local development only, `--insecure-local` allows
 anonymous admin access on a loopback address.
 
+### Rules, sudo/su, and remote collectors (SIEM-6)
+
+Detection rules are configured in TOML; see `rules.example.toml`. Built-in
+defaults apply to anything the file does not set, unknown keys are rejected,
+and the worker re-reads the file every cycle (keeping the last good rules if an
+edit is invalid).
+
+```bash
+python3 detector.py check-rules rules.toml
+python3 detector.py rules --rules rules.toml
+python3 detector.py worker /var/log/auth.log --format syslog --rules rules.toml
+```
+
+Syslog parsing also covers sudo and su: `privilege.sudo`, `privilege.su`,
+`privilege.failed` (each wrong password) and `privilege.denied` (not in
+sudoers). New rules: `correlation.privilege-failures` (3+ failed sudo/su
+passwords by one user in 5 minutes) and match rules for sudo by non-sudoers,
+root shells via sudo, Windows account creation, privileged group changes and a
+cleared security log.
+
+Remote collection: start the server with `--ingest-file data/events.jsonl`
+(the Docker image does) and give each collector a key with the `ingest` role,
+e.g. `SIEM_API_KEYS=web02:<key>=ingest,win01:<key>=ingest`. Ingest keys can
+only submit events.
+
+```bash
+# Linux host
+SIEM_INGEST_KEY=<key> python3 ingestion.py agent /var/log/auth.log --format syslog --ship-to https://siem.example.com
+# Windows host (elevated PowerShell; see the script header for scheduled-task setup)
+.\deploy\windows\siem-collector.ps1 -SiemUrl https://siem.example.com
+```
+
 ## Configuration
 
 The application reads these optional environment variables:

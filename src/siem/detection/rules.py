@@ -1,8 +1,10 @@
 """Small, explainable first-generation detection rules."""
 
-from dataclasses import dataclass
-from typing import Any, Callable
+from fnmatch import fnmatchcase
+import re
+from typing import Any, Callable, Iterable
 
+from siem.detection.config import MatchRule, RulesConfig
 from siem.domain.alerts import Alert
 
 
@@ -42,19 +44,26 @@ def high_severity_event(event: EventRecord) -> Alert | None:
     )
 
 
-def suspicious_event_type(event: EventRecord) -> Alert | None:
-    event_type = str(event.get("event_type", "")).lower()
-    suspicious_types = {"malware.detected", "suspicious.process", "ransomware.detected", "credential.theft"}
-    if event_type not in suspicious_types:
-        return None
-    return _alert(
-        event,
-        rule_id="event.suspicious-type",
-        title="Suspicious activity detected",
-        severity="high",
-        reason=f"The event type '{event_type}' is classified as suspicious.",
-        recommended_action="Preserve evidence and isolate the affected host for investigation.",
-    )
+def suspicious_event_type_rule(suspicious_types: Iterable[str]) -> RuleFunction:
+    types = frozenset(suspicious_types)
+
+    def suspicious_event_type(event: EventRecord) -> Alert | None:
+        event_type = str(event.get("event_type", "")).lower()
+        if event_type not in types:
+            return None
+        return _alert(
+            event,
+            rule_id="event.suspicious-type",
+            title="Suspicious activity detected",
+            severity="high",
+            reason=f"The event type '{event_type}' is classified as suspicious.",
+            recommended_action="Preserve evidence and isolate the affected host for investigation.",
+        )
+    return suspicious_event_type
+
+
+suspicious_event_type = suspicious_event_type_rule(
+    {"malware.detected", "suspicious.process", "ransomware.detected", "credential.theft"})
 
 
 def failed_login(event: EventRecord) -> Alert | None:
@@ -71,4 +80,44 @@ def failed_login(event: EventRecord) -> Alert | None:
 
 
 DEFAULT_RULES: tuple[RuleFunction, ...] = (high_severity_event, suspicious_event_type, failed_login)
+
+_PLACEHOLDER = re.compile(r"\{(\w+)\}")
+
+
+def _render(template: str, event: EventRecord) -> str:
+    """Fill {field} from the event's attributes or top-level fields; '?' when absent."""
+    attributes = event.get("attributes", {})
+    def value(match: re.Match[str]) -> str:
+        found = attributes.get(match[1], event.get(match[1]))
+        return "?" if found in (None, "") else str(found)
+    return _PLACEHOLDER.sub(value, template)
+
+
+def match_rule(rule: MatchRule) -> RuleFunction:
+    """A configurable rule: event type glob plus optional message/attribute conditions."""
+    def evaluate(event: EventRecord) -> Alert | None:
+        if not fnmatchcase(str(event.get("event_type", "")).lower(), rule.event_type):
+            return None
+        if rule.message_regex and not rule.message_regex.search(str(event.get("message", ""))):
+            return None
+        attributes = event.get("attributes", {})
+        if any(str(attributes.get(key, event.get(key, ""))) != expected for key, expected in rule.attributes):
+            return None
+        if any(not pattern.search(str(attributes.get(key, event.get(key, "")))) for key, pattern in rule.attribute_regex):
+            return None
+        return _alert(event, rule_id=rule.id, title=rule.title, severity=rule.severity,
+                      reason=_render(rule.reason, event), recommended_action=rule.recommended_action)
+    return evaluate
+
+
+def build_event_rules(config: RulesConfig) -> list[RuleFunction]:
+    rules: list[RuleFunction] = []
+    if config.high_severity:
+        rules.append(high_severity_event)
+    if config.suspicious_types is not None:
+        rules.append(suspicious_event_type_rule(config.suspicious_types))
+    if config.failed_login:
+        rules.append(failed_login)
+    rules.extend(match_rule(rule) for rule in config.match)
+    return rules
 

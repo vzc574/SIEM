@@ -27,6 +27,13 @@ _SSH_FAILED = re.compile(
 _SSH_ACCEPTED = re.compile(
     r"^Accepted (?P<method>\S+) for (?P<username>\S+)(?: from (?P<src_ip>\S+))?(?: port (?P<src_port>\d+))?"
 )
+_SUDO = re.compile(
+    r"^(?P<username>\S+) : (?:(?P<denied>user NOT in sudoers) ; )?(?P<gave_up>\d+ incorrect password attempts? ; )?"
+    r"TTY=(?P<tty>\S+) ; PWD=(?P<pwd>.*?) ; USER=(?P<target_user>\S+) ;(?: [A-Z]+=[^;]*;)* COMMAND=(?P<command>.*)$"
+)
+_PAM_FAILURE = re.compile(r"^pam_unix\((?P<service>sudo|su|su-l):auth\): authentication failure;(?P<fields>.*)$")
+_PAM_FIELD = re.compile(r"(\w+)=(\S*)")
+_SU_SUCCESS = re.compile(r"^\(to (?P<target_user>\S+)\) (?P<username>\S+) on (?P<tty>\S+)$")
 _SEVERITY_ORDER = ("debug", "info", "low", "medium", "high", "critical")
 
 
@@ -47,8 +54,38 @@ def _observed_at(timestamp: str, now: datetime) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
+def _classify_privilege(tag: str, message: str) -> tuple[str, dict[str, object]] | None:
+    """Map sudo/su results onto privilege.sudo / privilege.su / privilege.failed / privilege.denied.
+
+    Each pam_unix auth failure is one wrong password; sudo's later
+    "N incorrect password attempts" summary is left unclassified so attempts
+    are not counted twice.
+    """
+    pam = _PAM_FAILURE.match(message)
+    if pam and tag in {"sudo", "su"}:
+        fields = dict(_PAM_FIELD.findall(pam["fields"]))
+        username = fields.get("ruser") or fields.get("logname") or fields.get("user")
+        result: dict[str, object] = {"service": pam["service"]}
+        if pam["service"] != "sudo":
+            # For su, pam's user= is the target account; for sudo it is the caller.
+            result["target_user"] = fields.get("user") or "root"
+        if username:
+            result["username"] = username
+        if fields.get("rhost"):
+            result["src_ip"] = fields["rhost"]
+        return "privilege.failed", result
+    if tag == "sudo" and (match := _SUDO.match(message)) and not match["gave_up"]:
+        fields = {key: value for key, value in match.groupdict().items() if value and key not in {"denied", "gave_up"}}
+        return ("privilege.denied" if match["denied"] else "privilege.sudo"), fields
+    if tag == "su" and (match := _SU_SUCCESS.match(message)):
+        return "privilege.su", match.groupdict()
+    return None
+
+
 def _classify_auth(tag: str, message: str) -> tuple[str, dict[str, object]] | None:
-    """Map sshd authentication results onto the shared login event types."""
+    """Map sshd, sudo and su results onto the shared login/privilege event types."""
+    if tag in {"sudo", "su"}:
+        return _classify_privilege(tag, message)
     if tag != "sshd":
         return None
     for pattern, event_type in ((_SSH_FAILED, "login.failed"), (_SSH_ACCEPTED, "login.success")):
@@ -83,8 +120,9 @@ def parse_syslog_line(line: str, *, source: str = "syslog", now: datetime | None
     if auth:
         event_type, fields = auth
         attributes.update(fields)
-        if event_type == "login.failed" and _SEVERITY_ORDER.index(severity) < _SEVERITY_ORDER.index("medium"):
-            severity = "medium"
+        floor = {"login.failed": "medium", "privilege.failed": "medium", "privilege.denied": "high"}.get(event_type)
+        if floor and _SEVERITY_ORDER.index(severity) < _SEVERITY_ORDER.index(floor):
+            severity = floor
     return SecurityEvent(
         source=source,
         event_type=event_type,

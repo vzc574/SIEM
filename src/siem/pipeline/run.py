@@ -4,8 +4,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+from siem.detection.config import RulesConfig, load_rules
 from siem.detection.correlation import correlate
 from siem.detection.engine import detect
+from siem.detection.rules import build_event_rules
 from siem.ingestion.json_lines import parse_json_record
 from siem.intel.matcher import match_events
 from siem.intel.external import enrich_events
@@ -17,14 +19,17 @@ from siem.storage.sqlite import SqliteEventStore
 
 def process_event_records(events: list[dict[str, Any]], *, ioc_database: Path | None = None,
                           external_api_key: str | None = None, external_cache: Path | None = None,
-                          external_max_hashes: int = 10, history: list[dict[str, Any]] | None = None):
+                          external_max_hashes: int = 10, history: list[dict[str, Any]] | None = None,
+                          rules: RulesConfig | None = None):
     """Run every detection stage over `events`.
 
     `history` holds earlier, already-processed events (e.g. the last few
     minutes of logins from the database). Correlation sees history plus the
     new events, so an attack spanning several batches is still detected, but
-    only alerts triggered by a new event are returned.
+    only alerts triggered by a new event are returned. `rules` defaults to
+    the built-in rules merged with $SIEM_RULES.
     """
+    rules = rules or load_rules()
     normalized: list[dict[str, Any]] = []
     for event in events:
         if "observed_at" not in event or "event_id" not in event:
@@ -37,10 +42,10 @@ def process_event_records(events: list[dict[str, Any]], *, ioc_database: Path | 
     if history:
         new_ids = {str(event["event_id"]) for event in normalized}
         context = [event for event in history if str(event["event_id"]) not in new_ids] + normalized
-        correlated = [alert for alert in correlate(context) if alert.event_id in new_ids]
+        correlated = [alert for alert in correlate(context, rules) if alert.event_id in new_ids]
     else:
-        correlated = correlate(normalized)
-    alerts = detect(normalized) + correlated
+        correlated = correlate(normalized, rules)
+    alerts = detect(normalized, build_event_rules(rules)) + correlated
     if ioc_database:
         alerts.extend(match_events(normalized, IOCStore(ioc_database)))
     if external_api_key:

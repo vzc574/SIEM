@@ -9,7 +9,8 @@ Examples:
     python app.py report --alerts data/all-alerts.jsonl --output reports/current.md
 
 Endpoints: GET / (dashboard), /health, /me, /metrics, /stats, /events,
-/alerts, /incidents, /incidents/<id>; POST /incidents; PATCH /incidents/<id>.
+/alerts, /incidents, /incidents/<id>; POST /login, /logout, /incidents,
+/ingest (collectors; keys with role "ingest"); PATCH /incidents/<id>.
 
 Authentication: dashboard users (`python database.py user-add NAME --role
 analyst`, then sign in on the page) and/or API keys for scripts: SIEM_API_KEY
@@ -41,6 +42,8 @@ def main(argv: list[str] | None = None) -> int:
     serve.add_argument("--port", type=int, default=8080)
     serve.add_argument("--database", type=Path, default=Path("data/siem.db"))
     serve.add_argument("--alerts", type=Path, action="append", help="alert JSONL file (repeatable; default data/all-alerts.jsonl)")
+    serve.add_argument("--ingest-file", type=Path,
+                       help="enable POST /ingest for collectors, appending events here (the worker's input)")
     serve.add_argument("--insecure-local", action="store_true",
                        help="allow anonymous admin access (only with a loopback --host; development only)")
     report = commands.add_parser("report", help="write a Markdown incident report from alerts")
@@ -61,7 +64,7 @@ def main(argv: list[str] | None = None) -> int:
     alerts = args.alerts or [Path("data/all-alerts.jsonl")]
     try:
         server = create_server(args.host, args.port, args.database, os.getenv("SIEM_API_KEY"), alerts,
-                               allow_insecure_local=args.insecure_local)
+                               allow_insecure_local=args.insecure_local, ingest_path=args.ingest_file)
     except (OSError, ValueError) as exc:
         print(f"startup failed: {exc}", file=sys.stderr)
         return 1

@@ -14,8 +14,11 @@ from pathlib import Path
 import threading
 import time
 from urllib.parse import parse_qs, urlparse
+from uuid import NAMESPACE_URL, uuid5
 
 from siem.domain.events import SecurityEvent
+from siem.ingestion.formats import PARSERS, LogLineError, parse_line
+from siem.ingestion.json_lines import JsonLogParseError, parse_json_record
 from siem.storage.sqlite import SqliteEventStore
 from siem.api.dashboard import DASHBOARD_HTML, DASHBOARD_JS
 
@@ -23,6 +26,9 @@ from siem.api.dashboard import DASHBOARD_HTML, DASHBOARD_JS
 SESSION_COOKIE = "siem_session"
 SESSION_TTL = timedelta(hours=8)
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+# viewer/analyst/admin as for users; "ingest" keys may only POST /ingest.
+KEY_ROLES = {"viewer", "analyst", "admin", "ingest"}
+MAX_INGEST_BATCH = 5000
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,7 +57,7 @@ def parse_named_api_keys(value: str | None) -> dict[str, tuple[str, str]]:
         name, colon, key = credential.partition(":")
         if not colon:
             name, key = "", credential
-        if separator and key and role in {"viewer", "analyst", "admin"}:
+        if separator and key and role in KEY_ROLES:
             result[key] = (role, name or f"key-{hashlib.sha256(key.encode()).hexdigest()[:8]}")
     return result
 
@@ -205,8 +211,10 @@ class _SlidingLimiter:
 
 def make_handler(database: Path, api_key: str | None = None, alert_paths: list[Path] | None = None,
                  api_keys: dict[str, str] | dict[str, tuple[str, str]] | None = None,
-                 trusted_proxies: list | None = None, *, allow_anonymous: bool = False):
+                 trusted_proxies: list | None = None, *, allow_anonymous: bool = False,
+                 ingest_path: Path | None = None):
     store = SqliteEventStore(database)
+    ingest_lock = threading.Lock()
     alert_sync = AlertFileSync(store, alert_paths or [])
     alert_sync.sync()
     named_keys = {key: (value if isinstance(value, tuple) else (value, "")) for key, value in (api_keys or {}).items()}
@@ -302,6 +310,9 @@ def make_handler(database: Path, api_key: str | None = None, alert_paths: list[P
             if parsed.path == "/me":
                 self._json(200, {"role": principal.role, "name": principal.name})
                 return
+            if principal.role == "ingest":
+                self._json(403, {"error": "ingest keys can only submit events"})
+                return
             if parsed.path == "/metrics":
                 self._metrics()
                 return
@@ -363,9 +374,9 @@ def make_handler(database: Path, api_key: str | None = None, alert_paths: list[P
             # preflight, which this server never approves: this blocks CSRF.
             return self.headers.get("Content-Type", "").split(";")[0].strip().lower() == "application/json"
 
-        def _body(self) -> dict[str, object]:
+        def _body(self, max_bytes: int = 64 * 1024) -> dict[str, object]:
             length = int(self.headers.get("Content-Length", "0"))
-            if length > 64 * 1024:
+            if length > max_bytes:
                 raise ValueError("request body too large")
             value = json.loads(self.rfile.read(length) or b"{}")
             if not isinstance(value, dict):
@@ -421,11 +432,77 @@ def make_handler(database: Path, api_key: str | None = None, alert_paths: list[P
             token = store.create_session(username, ttl=SESSION_TTL)
             self._json(200, {"name": username, "role": role}, cookie=self._cookie(token, int(SESSION_TTL.total_seconds())))
 
+        def _ingest(self) -> None:
+            """Accept {"events": [...]} (normalized) or {"format", "source", "lines": [...]} (raw)."""
+            principal = self._principal()
+            if principal is None:
+                self._json(401, {"error": "authentication required"})
+                return
+            if principal.role not in {"ingest", "admin"}:
+                self._json(403, {"error": "ingest or admin role required"})
+                return
+            if ingest_path is None:
+                self._json(404, {"error": "ingestion is not enabled on this server (start with --ingest-file)"})
+                return
+            if not self._json_request():
+                self._json(415, {"error": "Content-Type must be application/json"})
+                return
+            try:
+                body = self._body(max_bytes=8 * 1024 * 1024)
+            except (ValueError, json.JSONDecodeError):
+                self._json(400, {"error": "invalid JSON body (max 8 MiB)"})
+                return
+            source = str(body.get("source") or principal.name)[:64]
+            lines, raw_events = body.get("lines"), body.get("events")
+            items = lines if isinstance(lines, list) else raw_events if isinstance(raw_events, list) else None
+            if items is None or len(items) > MAX_INGEST_BATCH:
+                self._json(400, {"error": f"send 'events' or 'lines' as a list of at most {MAX_INGEST_BATCH} items"})
+                return
+            input_format = body.get("format")
+            if lines is not None and input_format not in PARSERS:
+                self._json(400, {"error": f"'format' must be one of {sorted(PARSERS)}"})
+                return
+            records: list[dict[str, object]] = []
+            errors: list[str] = []
+            for index, item in enumerate(items):
+                try:
+                    if lines is not None:
+                        if not isinstance(item, str):
+                            raise LogLineError("line must be a string")
+                        record = parse_line(item, input_format, source=source).to_record()
+                        # Deterministic IDs make collector retries idempotent.
+                        record["event_id"] = str(uuid5(NAMESPACE_URL, f"{source}\n{item}"))
+                    else:
+                        if not isinstance(item, dict):
+                            raise JsonLogParseError("event must be an object")
+                        record = parse_json_record(item, default_source=source).to_record()
+                        if isinstance(item.get("event_id"), str) and item["event_id"]:
+                            record["event_id"] = item["event_id"][:128]
+                    record["attributes"]["collector"] = principal.name
+                    records.append(record)
+                except (LogLineError, JsonLogParseError, ValueError) as exc:
+                    errors.append(f"item {index}: {exc}")
+            if records:
+                data = "".join(json.dumps(record, sort_keys=True) + "\n" for record in records).encode("utf-8")
+                with ingest_lock:
+                    ingest_path.parent.mkdir(parents=True, exist_ok=True)
+                    descriptor = os.open(ingest_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o640)
+                    try:
+                        view = memoryview(data)
+                        while view:
+                            view = view[os.write(descriptor, view):]
+                    finally:
+                        os.close(descriptor)
+            self._json(202, {"accepted": len(records), "rejected": len(errors), "errors": errors[:10]})
+
         def do_POST(self) -> None:  # noqa: N802
             if not requests.allow(self._client()):
                 self._json(429, {"error": "rate limit exceeded"})
                 return
             path = urlparse(self.path).path
+            if path == "/ingest":
+                self._ingest()
+                return
             if path == "/login":
                 self._login()
                 return
@@ -485,7 +562,7 @@ def make_handler(database: Path, api_key: str | None = None, alert_paths: list[P
 
 def create_server(host: str, port: int, database: Path, api_key: str | None = None, alert_paths: list[Path] | None = None,
                   api_keys: dict[str, str] | dict[str, tuple[str, str]] | None = None,
-                  *, allow_insecure_local: bool = False) -> ThreadingHTTPServer:
+                  *, allow_insecure_local: bool = False, ingest_path: Path | None = None) -> ThreadingHTTPServer:
     """Build the server. Some credential (API key or dashboard user) is required,
     unless `allow_insecure_local` is set and the server binds to loopback only."""
     configured_key = api_key or os.getenv("SIEM_API_KEY")
@@ -498,5 +575,6 @@ def create_server(host: str, port: int, database: Path, api_key: str | None = No
                          "with `python database.py user-add`, or use --insecure-local for local development")
     trusted = parse_trusted_proxies(os.getenv("SIEM_TRUSTED_PROXIES"))
     handler = make_handler(database, configured_key, alert_paths, configured_keys, trusted,
-                           allow_anonymous=allow_insecure_local and not (configured_key or configured_keys))
+                           allow_anonymous=allow_insecure_local and not (configured_key or configured_keys),
+                           ingest_path=ingest_path)
     return ThreadingHTTPServer((host, port), handler)
