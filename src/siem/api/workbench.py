@@ -4,6 +4,7 @@ Uploaded samples are stored as inert bytes (no execute permission, no
 original extension) and are only ever read by the static analyzer.
 """
 
+from collections import Counter
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -173,12 +174,30 @@ class Workbench:
         stored = self.store.append_alerts([alert.to_record() for alert in match_events(events, self.iocs)])
         return {"events_scanned": len(events), "new_alerts": len(stored)}
 
+    def _analysis(self, sha256: str | None) -> dict[str, Any] | None:
+        if not sha256:
+            return None
+        return {key: value for key, value in self._record(sha256).items() if key != "strings"}
+
     def report_context(self, sha256: str | None = None, alert_limit: int = 100) -> dict[str, Any]:
-        alerts = self.store.search_alerts(limit=alert_limit)
-        analysis = None
-        if sha256:
-            analysis = {key: value for key, value in self._record(sha256).items() if key != "strings"}
-        return build_context(alerts, analysis)
+        return build_context(self.store.search_alerts(limit=alert_limit), self._analysis(sha256))
+
+    def ai_context(self, sha256: str | None = None) -> dict[str, Any]:
+        """Compact evidence for the AI: counts per rule plus the high/critical alerts.
+
+        Hundreds of near-identical raw alerts overflow small (local) models,
+        which then invent findings; the counts keep the full picture.
+        """
+        alerts = self.store.search_alerts(limit=10000)
+        important = [{key: alert.get(key) for key in ("severity", "title", "reason")}
+                     for alert in alerts if alert.get("severity") in {"critical", "high"}][:25]
+        context = build_context(important, self._analysis(sha256))
+        context["alert_count"] = len(alerts)
+        context["alerts_by_rule"] = [{"severity": severity, "rule": rule, "count": count}
+                                     for (severity, rule), count in Counter(
+                                         (alert.get("severity"), alert.get("rule_id")) for alert in alerts).most_common()]
+        context["limitations"].append("'alerts' lists only high and critical alerts; 'alerts_by_rule' counts all of them.")
+        return context
 
     def report(self, sha256: str | None = None) -> str:
         return render_markdown(self.report_context(sha256))
@@ -188,7 +207,7 @@ class Workbench:
             raise FeatureUnavailable("AI reporting is not configured: install the 'openai' package, "
                                      "set OPENAI_API_KEY and restart the server")
         try:
-            return generate_ai_report(self.report_context(sha256, alert_limit=50),
+            return generate_ai_report(self.ai_context(sha256),
                                       model=os.getenv("OPENAI_MODEL", "gpt-5"))
         except AIIntegrationError as exc:
             raise WorkbenchError(str(exc)) from exc

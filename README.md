@@ -570,7 +570,11 @@ The static analyzer also reads UTF-16 strings and reports capabilities
 (process injection, registry modification, kernel driver, keylogging,
 firewall tampering, ...) from imported API names and strings, so a verdict
 explains itself. VirusTotal needs `VIRUSTOTAL_API_KEY`; the AI summary needs
-`OPENAI_API_KEY` and `pip install -e '.[ai]'`. `video-demo/prepare.py`
+`OPENAI_API_KEY` and `pip install -e '.[ai]'`. For a free, local alternative, point it at
+Ollama: `OPENAI_BASE_URL=http://localhost:11434/v1`, `OPENAI_API_KEY=ollama`
+and e.g. `OPENAI_MODEL=qwen2.5:1.5b`. The AI receives a compact summary
+(alert counts per rule plus the high and critical alerts), which keeps small
+models on the evidence. `video-demo/prepare.py`
 builds a realistic demo dataset and `video-demo/start.sh` serves it.
 
 ### Deploy on Render
