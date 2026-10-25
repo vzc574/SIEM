@@ -30,6 +30,11 @@ class IOCStore:
                 (str(uuid4()), kind, value.strip().lower(), source, confidence, datetime.now(timezone.utc).isoformat()),
             )
 
+    def list(self, limit: int = 500) -> list[dict[str, object]]:
+        with connect(self.path) as connection:
+            rows = connection.execute("SELECT * FROM indicators ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(row) for row in rows]
+
     def find(self, kind: str, value: str) -> dict[str, object] | None:
         with connect(self.path) as connection:
             row = connection.execute("SELECT * FROM indicators WHERE kind = ? AND value = ?", (kind, value.lower())).fetchone()

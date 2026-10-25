@@ -45,6 +45,24 @@ class ReputationCache:
         temporary.replace(self.path)
 
 
+def reputation_alert(reputation: HashReputation, event_id: str) -> Alert | None:
+    """An alert when any engine flags the hash as malicious or suspicious."""
+    if not (reputation.malicious or reputation.suspicious):
+        return None
+    return Alert(
+        rule_id="intel.external-reputation",
+        title="External threat-intelligence reputation match",
+        severity="critical" if reputation.malicious else "high",
+        event_id=event_id,
+        reason=(f"VirusTotal reported {reputation.malicious} malicious and "
+                f"{reputation.suspicious} suspicious engine result(s) for the SHA-256 hash."),
+        recommended_action="Validate the reputation, preserve evidence, and investigate the affected host.",
+        evidence={"sha256": reputation.sha256, "malicious": reputation.malicious,
+                  "suspicious": reputation.suspicious, "total_engines": reputation.total_engines,
+                  "tags": list(reputation.tags)},
+    )
+
+
 def _hashes(events: list[dict[str, Any]]) -> list[tuple[str, str]]:
     found: set[str] = set()
     result: list[tuple[str, str]] = []
@@ -94,18 +112,6 @@ def enrich_events(
                         sleep(backoff_seconds * (2 ** attempt))
             if reputation is None:
                 continue
-        if reputation.malicious or reputation.suspicious:
-            severity = "critical" if reputation.malicious else "high"
-            alerts.append(Alert(
-                rule_id="intel.external-reputation",
-                title="External threat-intelligence reputation match",
-                severity=severity,
-                event_id=event_id,
-                reason=(f"VirusTotal reported {reputation.malicious} malicious and "
-                        f"{reputation.suspicious} suspicious engine result(s) for the SHA-256 hash."),
-                recommended_action="Validate the reputation, preserve evidence, and investigate the affected host.",
-                evidence={"sha256": reputation.sha256, "malicious": reputation.malicious,
-                          "suspicious": reputation.suspicious, "total_engines": reputation.total_engines,
-                          "tags": list(reputation.tags)},
-            ))
+        if alert := reputation_alert(reputation, event_id):
+            alerts.append(alert)
     return alerts

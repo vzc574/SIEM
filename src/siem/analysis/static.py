@@ -13,6 +13,8 @@ from typing import Any
 
 
 _PRINTABLE = re.compile(rb"[ -~]{6,}")
+# Windows stores many strings (registry paths, URLs) as UTF-16LE.
+_WIDE_PRINTABLE = re.compile(rb"(?:[ -~]\x00){6,}")
 _SUSPICIOUS_TERMS = (
     b"powershell",
     b"cmd.exe",
@@ -24,6 +26,21 @@ _SUSPICIOUS_TERMS = (
     b"downloadstring",
     b"invoke-expression",
 )
+# Imported API names and strings that reveal what a binary can do. Benign
+# software uses some of these too, so they explain a verdict, not prove one.
+_CAPABILITIES = {
+    "kernel-driver": ("ntoskrnl.exe", "iocreatedevice", "keservicedescriptortable"),
+    "registry-modification": ("regsetvalue", "regcreatekey", "rtlwriteregistryvalue", "rtlcreateregistrykey", "zwsetvaluekey"),
+    "process-injection": ("virtualallocex", "writeprocessmemory", "createremotethread", "ntunmapviewofsection",
+                          "queueuserapc", "setthreadcontext"),
+    "keylogging": ("setwindowshookex", "getasynckeystate"),
+    "network-download": ("urldownloadtofile", "internetopen", "httpsendrequest", "winhttpopen", "wsastartup"),
+    "service-persistence": ("createservice", "openscmanager", "currentversion\\run"),
+    "process-execution": ("winexec", "shellexecute", "createprocess"),
+    "privilege-escalation": ("adjusttokenprivileges", "lookupprivilegevalue"),
+    "anti-debugging": ("isdebuggerpresent", "checkremotedebuggerpresent"),
+    "security-tampering": ("windowsfirewall", "firewallpolicy", "disableantispyware"),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +54,7 @@ class FileAnalysis:
     strings: list[str] = field(default_factory=list)
     indicators: list[str] = field(default_factory=list)
     classification: str = "unknown"
+    capabilities: dict[str, list[str]] = field(default_factory=dict)
 
     def to_record(self) -> dict[str, Any]:
         return asdict(self)
@@ -71,11 +89,19 @@ def analyze_file(path: Path, *, max_strings: int = 100) -> FileAnalysis:
     data = path.read_bytes()
     digest = hashlib.sha256(data).hexdigest()
     extracted = [match.decode("utf-8", errors="replace") for match in _PRINTABLE.findall(data)[:max_strings]]
-    lower_data = data.lower()
+    wide = [match.decode("utf-16-le", errors="replace") for match in _WIDE_PRINTABLE.findall(data)]
+    extracted += wide[:max(0, max_strings - len(extracted))]
+    lower_data = data.lower() + "\n".join(wide).lower().encode("utf-8", errors="replace")
     indicators: list[str] = []
     for term in _SUSPICIOUS_TERMS:
         if term in lower_data:
             indicators.append(f"contains:{term.decode('ascii')}")
+    capabilities: dict[str, list[str]] = {}
+    for capability, terms in _CAPABILITIES.items():
+        matched = [term for term in terms if term.encode("ascii") in lower_data]
+        if matched:
+            capabilities[capability] = matched
+            indicators.append(f"capability:{capability}")
     if _magic(data) in {"windows-pe", "elf"}:
         indicators.append(f"binary:{_magic(data)}")
     if _entropy(data) >= 7.2:
@@ -98,5 +124,6 @@ def analyze_file(path: Path, *, max_strings: int = 100) -> FileAnalysis:
         strings=extracted,
         indicators=indicators,
         classification=classification,
+        capabilities=capabilities,
     )
 

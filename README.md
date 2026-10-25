@@ -553,6 +553,26 @@ TLS overlay does not publish port 8080.
 To deploy on AWS EC2 (Ubuntu 24.04) with HTTPS, backups and certificate
 renewal, follow [deploy/aws/README.md](deploy/aws/README.md).
 
+### Malware analysis, threat intel and AI in the dashboard (SIEM-9)
+
+The dashboard now exposes the analyst tools that were CLI-only:
+
+- **Malware analysis** — upload a file; it is stored without execute
+  permission under `<data>/samples/`, analyzed statically, and recorded as a
+  `file.analyzed` event. A suspicious verdict raises a `file.suspicious`
+  alert. Analysts can look the hash up on VirusTotal (only the hash is sent;
+  results are cached for 24 hours) and admins can quarantine the sample.
+- **Threat intel** — add IOCs and scan all stored events against them.
+- **Reports & AI** — the deterministic incident report, optionally including
+  one analyzed file, and an AI summary of the same bounded evidence.
+
+The static analyzer also reads UTF-16 strings and reports capabilities
+(process injection, registry modification, kernel driver, keylogging,
+firewall tampering, ...) from imported API names and strings, so a verdict
+explains itself. VirusTotal needs `VIRUSTOTAL_API_KEY`; the AI summary needs
+`OPENAI_API_KEY` and `pip install -e '.[ai]'`. `video-demo/prepare.py`
+builds a realistic demo dataset and `video-demo/start.sh` serves it.
+
 ## Configuration
 
 The application reads these optional environment variables:

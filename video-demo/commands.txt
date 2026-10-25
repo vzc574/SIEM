@@ -1,0 +1,16 @@
+# Copy-paste commands for the recording (run in ~/SIEM)
+
+# --- before recording ---
+python3 video-demo/prepare.py
+./video-demo/start.sh            # second terminal; keep it running
+
+# --- scene 3: command line ---
+grep 203.0.113.50 video-demo/logs/auth.log
+python3 ingestion.py ingest video-demo/logs/auth.log --format syslog --output cli-demo/events.jsonl
+python3 detector.py detect cli-demo/events.jsonl --output cli-demo/alerts.jsonl --database cli-demo/siem.db
+python3 database.py stats cli-demo/siem.db | head -20
+PYTHONPATH=src python3 -m siem analyze-file video-demo/samples/Lab10-01.sys | head -30
+
+# --- dashboard ---
+# http://127.0.0.1:8080   login: admin / SiemDemo-2026!
+# Threat intel demo:  type ip   value 203.0.113.50   source abuse.ch
