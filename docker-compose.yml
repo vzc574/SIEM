@@ -7,6 +7,9 @@ services:
       SIEM_API_KEY: ${SIEM_API_KEY:-}
       SIEM_API_KEYS: ${SIEM_API_KEYS:-}
       SIEM_TRUSTED_PROXIES: ${SIEM_TRUSTED_PROXIES:-}
+      VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5}
     volumes:
       - siem-data:/app/data
       - siem-reports:/app/reports

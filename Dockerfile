@@ -5,7 +5,7 @@ COPY pyproject.toml README.md ./
 COPY src ./src
 COPY ingestion.py database.py detector.py app.py ./
 
-RUN python -m pip install --no-cache-dir .
+RUN python -m pip install --no-cache-dir ".[ai]"
 RUN useradd --create-home --uid 10001 siem
 RUN mkdir -p /app/data /app/reports /app/quarantine \
     && chown -R siem:siem /app
