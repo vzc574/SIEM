@@ -8,8 +8,13 @@ pushes them through the real ingestion and detection modules into
 video-demo/data/siem.db, creates two dashboard users, and copies the
 malware samples for the upload demo into video-demo/samples/.
 Timestamps are relative to now so everything shows in the "last 24 hours".
+
+`--data-dir DIR --no-users` seeds a server instead (deploy/render/start.sh):
+the same attack data, but no users with the published demo password and no
+sample copies.
 """
 
+import argparse
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
@@ -85,6 +90,12 @@ def run(*args: str, stdin: str | None = None) -> None:
 
 
 def main() -> None:
+    global DATA
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--data-dir", type=Path, default=DATA)
+    parser.add_argument("--no-users", action="store_true", help="skip demo users and sample files (servers)")
+    args = parser.parse_args()
+    DATA = args.data_dir.resolve()
     shutil.rmtree(DATA, ignore_errors=True)
     shutil.rmtree(ROOT / "cli-demo", ignore_errors=True)  # output of the command-line scene
     for directory in (DATA, LOGS, SAMPLES):
@@ -95,12 +106,16 @@ def main() -> None:
     for name, (_, lines) in logs.items():
         (LOGS / name).write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("2. Ingesting (ingestion.py)")
-    events = DATA / "events.jsonl"
+    # Not events.jsonl: that is the worker's input, and these are already detected.
+    events = DATA / "seed-events.jsonl"
     for name, (fmt, _) in logs.items():
         run("ingestion.py", "ingest", str(LOGS / name), "--format", fmt, "--output", str(events))
     print("3. Detecting (detector.py)")
     run("database.py", "init", str(DATA / "siem.db"))
     run("detector.py", "detect", str(events), "--output", str(DATA / "alerts.jsonl"), "--database", str(DATA / "siem.db"))
+    if args.no_users:
+        print(f"\nSeeded {DATA}")
+        return
     print("4. Creating dashboard users")
     for user, role in USERS.items():
         run("database.py", "user-add", user, "--role", role, "--password-stdin", "--database", str(DATA / "siem.db"), stdin=PASSWORD + "\n")

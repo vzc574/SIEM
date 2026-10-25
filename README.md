@@ -573,6 +573,19 @@ explains itself. VirusTotal needs `VIRUSTOTAL_API_KEY`; the AI summary needs
 `OPENAI_API_KEY` and `pip install -e '.[ai]'`. `video-demo/prepare.py`
 builds a realistic demo dataset and `video-demo/start.sh` serves it.
 
+### Deploy on Render
+
+`render.yaml` is a Render Blueprint: in the Render dashboard choose
+**New → Blueprint**, select this repository, and enter `SIEM_ADMIN_PASSWORD`
+(dashboard user `admin`), `VIRUSTOTAL_API_KEY` and `OPENAI_API_KEY` when
+asked. The API and worker run in one container (`deploy/render/start.sh`)
+because a Render disk can be attached to only one service.
+
+The free plan has no persistent disk, so data resets on every deploy, restart
+and spin-down; with `SIEM_DEMO_DATA=1` each start reloads the demo attack
+dataset. For lasting data, switch to a paid plan and enable the `disk` block
+in `render.yaml`.
+
 ## Configuration
 
 The application reads these optional environment variables:

@@ -4,6 +4,8 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src ./src
 COPY ingestion.py database.py detector.py app.py ./
+COPY video-demo/prepare.py ./video-demo/
+COPY deploy/render/start.sh ./deploy/render/
 
 RUN python -m pip install --no-cache-dir ".[ai]"
 RUN useradd --create-home --uid 10001 siem

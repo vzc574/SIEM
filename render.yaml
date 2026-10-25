@@ -1,0 +1,39 @@
+# Render Blueprint: Dashboard -> New -> Blueprint -> pick this repository.
+#
+# The free plan has no persistent disk: data resets on every deploy, restart
+# and spin-down (free services sleep after inactivity). SIEM_DEMO_DATA=1 then
+# reloads the demo attack dataset on each start. For data that survives, use
+# a paid plan (e.g. starter) and uncomment the disk block.
+services:
+  - type: web
+    name: siem
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    dockerCommand: ./deploy/render/start.sh
+    # disk:
+    #   name: siem-data
+    #   mountPath: /app/data
+    #   sizeGB: 1
+    envVars:
+      # Dashboard sign-in (user "admin"). Choose a long, unique password:
+      # the dashboard is public and analysts can spend your API credit.
+      - key: SIEM_ADMIN_PASSWORD
+        sync: false
+      - key: VIRUSTOTAL_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-5
+      - key: SIEM_DEMO_DATA
+        value: "1"
+      # Admin API key for scripts (read it in the Render dashboard).
+      - key: SIEM_API_KEY
+        generateValue: true
+      # Only Render's proxy can reach the container, and it sends the client
+      # address in X-Forwarded-For, so rate limits apply per visitor, not to everyone at once.
+      - key: SIEM_TRUSTED_PROXIES
+        value: 0.0.0.0/0,::/0
+      - key: SIEM_COOKIE_SECURE
+        value: "1"
