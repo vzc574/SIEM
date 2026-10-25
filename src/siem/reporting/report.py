@@ -65,8 +65,15 @@ def render_markdown(context: dict[str, Any]) -> str:
             f"- SHA-256: `{analysis.get('sha256', 'unknown')}`",
             f"- Magic: `{analysis.get('magic', 'unknown')}`",
             f"- Indicators: {', '.join(analysis.get('indicators', [])) or 'None recorded'}",
-            "",
         ])
+        for capability, terms in (analysis.get("capabilities") or {}).items():
+            lines.append(f"- Capability `{capability}`: {', '.join(terms)}")
+        if reputation := analysis.get("virustotal"):
+            lines.append(f"- VirusTotal: {reputation.get('malicious', 0)} of {reputation.get('total_engines', 0)} "
+                         f"engines flag this hash as malicious" if reputation.get("found") else "- VirusTotal: hash not known")
+        if analysis.get("quarantined"):
+            lines.append(f"- Quarantined by {analysis.get('quarantined_by', 'an analyst')}")
+        lines.append("")
     lines.extend([
         "## Limitations",
         "",

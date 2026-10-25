@@ -24,6 +24,15 @@ DASHBOARD_HTML = r'''<!doctype html>
     .chart-card { margin-top:1rem } .chart-head { display:flex; flex-wrap:wrap; gap:.75rem; align-items:center; justify-content:space-between; margin-bottom:.6rem } .chart-head h3 { margin:0 } .legend { display:flex; flex-wrap:wrap; gap:.8rem; font-size:.8rem; color:var(--muted) } .legend i { display:inline-block; width:.7rem; height:.7rem; border-radius:3px; margin-right:.3rem; vertical-align:-1px }
     #timeline svg { width:100%; height:auto; display:block } #timeline .axis { fill:var(--muted); font-size:11px } #timeline .grid-line { stroke:var(--line) } .sev-critical { fill:#7a271a; background:#7a271a } .sev-high { fill:var(--red); background:var(--red) } .sev-medium { fill:#f79009; background:#f79009 } .sev-low { fill:var(--green); background:var(--green) } .sev-info { fill:#98a2b3; background:#98a2b3 } .logins-line { fill:none; stroke:var(--purple); stroke-width:2 } .logins-key { background:var(--purple) }
     .login { max-width:420px; margin:3rem auto } .login form { display:grid; gap:.75rem } .login label { display:grid; gap:.3rem; font-size:.9rem } .login details { margin-top:1rem; font-size:.9rem } .login details .toolbar { margin:.6rem 0 0; padding:0; background:none } [hidden] { display:none !important }
+    .chips { display:flex; flex-wrap:wrap; gap:.4rem } .chip { display:inline-block; padding:.2rem .55rem; border-radius:999px; background:#eef4ff; color:var(--blue); font-size:.8rem; font-weight:600 } .chip.danger { background:#fef3f2; color:var(--red) }
+    .result { margin:1rem 0 } .result-head { display:flex; flex-wrap:wrap; gap:.8rem; align-items:center; justify-content:space-between } .result-head h3 { margin:0; font-size:1.25rem; word-break:break-all }
+    .verdict { white-space:nowrap; padding:.35rem .8rem; border-radius:999px; font-weight:800; text-transform:uppercase; letter-spacing:.05em; font-size:.85rem } .verdict.suspicious { background:#fef3f2; color:var(--red) } .verdict.potentially-suspicious { background:#fffaeb; color:var(--orange) } .verdict.no-obvious-indicators { background:#ecfdf3; color:var(--green) }
+    .facts { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.8rem; margin:1rem 0 } .facts div { background:#f8fafc; border:1px solid var(--line); border-radius:10px; padding:.6rem .75rem } .facts dt { color:var(--muted); font-size:.75rem; text-transform:uppercase; letter-spacing:.05em } .facts dd { margin:.2rem 0 0; font-weight:700; word-break:break-all }
+    .caps { display:grid; gap:.45rem; margin:.4rem 0 1rem; padding:0; list-style:none } .caps li { padding:.55rem .75rem; border-left:4px solid var(--red); background:#fffbfa; border-radius:6px } .caps code { font-size:.8rem; color:var(--muted) }
+    .reputation { padding:.75rem 1rem; border-radius:10px; background:#f8fafc; border:1px solid var(--line); margin:.6rem 0 } .reputation.bad { background:#fef3f2; border-color:#fecdca } .reputation.good { background:#ecfdf3; border-color:#abefc6 }
+    .note { font-size:.88rem; color:var(--muted) } button:disabled { opacity:.45; cursor:not-allowed; transform:none; box-shadow:none } button.secondary { background:white; color:var(--blue) } button.danger { background:var(--red); border-color:var(--red) }
+    .report-view { background:var(--panel); border:1px solid #e6eaf2; border-radius:14px; padding:1.2rem 1.5rem; box-shadow:0 5px 18px #1018280d; line-height:1.55 } .report-view h3 { margin:1.2rem 0 .4rem } .report-view h4 { margin:1rem 0 .3rem } .report-view ul { margin:.3rem 0; padding-left:1.3rem } .report-view.ai { border-left:4px solid var(--purple) }
+    @media (max-width:760px) { .facts { grid-template-columns:repeat(2,minmax(0,1fr)) } }
     @media (max-width:760px) { header { align-items:flex-start; flex-direction:column } .grid, .grid.panels { grid-template-columns:repeat(2,1fr) } }
     @media (max-width:520px) { .grid.panels { grid-template-columns:1fr } }
   </style>
@@ -35,7 +44,7 @@ DASHBOARD_HTML = r'''<!doctype html>
     <p id="login-error" class="error" role="alert"></p>
     <details><summary>Use an API key instead</summary><div class="toolbar"><input id="api-key" type="password" placeholder="API key (kept for this tab only)" autocomplete="off"><button id="save-key">Use key</button></div></details>
   </section>
-  <nav id="app-nav" class="nav" aria-label="Dashboard views"><button data-view="overview">Overview</button><button data-view="triage">Analyst triage</button><button data-view="operations">Operations</button><span id="role-label" class="muted"></span></nav>
+  <nav id="app-nav" class="nav" aria-label="Dashboard views"><button data-view="overview">Overview</button><button data-view="triage">Analyst triage</button><button data-view="operations">Operations</button><button data-view="malware">Malware analysis</button><button data-view="intel">Threat intel</button><button data-view="reports">Reports &amp; AI</button><span id="role-label" class="muted"></span></nav>
   <div id="error" class="error" role="alert"></div>
   <section id="overview" class="view">
     <div class="toolbar"><label>Time range <select id="range"><option value="24">Last 24 hours</option><option value="168">Last 7 days</option><option value="720">Last 30 days</option></select></label></div>
@@ -54,6 +63,20 @@ DASHBOARD_HTML = r'''<!doctype html>
   <h2>Open incidents</h2><div class="table-wrap"><table><thead><tr><th>Severity</th><th>Title</th><th>Status</th><th>Assignee</th><th>Updated</th></tr></thead><tbody id="incidents"><tr><td colspan="5">Loading…</td></tr></tbody></table></div></section>
   <section id="operations" class="view"><h2>Event search</h2><div class="toolbar"><input id="event-search" type="search" placeholder="Search event text, type, or source"><select id="event-severity"><option value="">All severities</option><option>critical</option><option>high</option><option>medium</option><option>low</option></select><button id="search-events">Search</button><button id="export-events">Export CSV</button></div>
   <div class="table-wrap"><table><thead><tr><th>Time</th><th>Severity</th><th>Source</th><th>Type</th><th>Message</th></tr></thead><tbody id="events"><tr><td colspan="5">Search for events.</td></tr></tbody></table></div></section>
+  <section id="malware" class="view"><h2>Malware analysis</h2>
+    <p class="note">Static analysis only: the SIEM reads the file's bytes and never runs it. Uploaded samples are stored without execute permission.</p>
+    <div class="toolbar"><input id="sample-file" type="file"><button id="analyze">Analyze file</button><span id="analyze-status" class="muted"></span></div>
+    <div id="analysis-result" class="card result" hidden></div>
+    <h2>Analyzed files</h2><div class="table-wrap"><table><thead><tr><th>Verdict</th><th>File</th><th>Capabilities</th><th>VirusTotal</th><th>Analyzed</th></tr></thead><tbody id="analyses"><tr><td colspan="5">No files analyzed yet.</td></tr></tbody></table></div></section>
+  <section id="intel" class="view"><h2>Threat intelligence</h2>
+    <p class="note">Known-bad indicators (hashes, IPs, domains, URLs). Every event is checked against them; a match raises an alert.</p>
+    <form id="ioc-form" class="toolbar"><select id="ioc-kind"><option>sha256</option><option>ip</option><option>domain</option><option>url</option><option>md5</option><option>sha1</option></select><input id="ioc-value" placeholder="Indicator value" required size="40"><input id="ioc-source" placeholder="Source, e.g. abuse.ch"><label>Confidence <input id="ioc-confidence" type="number" min="0" max="100" value="80"></label><button type="submit">Add indicator</button></form>
+    <div class="toolbar"><button id="ioc-scan" class="secondary">Scan all events against indicators</button><span id="ioc-status" class="muted"></span></div>
+    <div class="table-wrap"><table><thead><tr><th>Type</th><th>Value</th><th>Source</th><th>Confidence</th><th>Added</th></tr></thead><tbody id="iocs"><tr><td colspan="5">No indicators yet.</td></tr></tbody></table></div></section>
+  <section id="reports" class="view"><h2>Incident report</h2>
+    <p class="note">The standard report is built only from recorded evidence. The AI summary sends the same bounded evidence (never the file itself) to the configured AI provider; a human must review it.</p>
+    <div class="toolbar"><label>Include file <select id="report-file"><option value="">No file</option></select></label><button id="make-report">Generate report</button><button id="make-ai-report" class="secondary">AI summary</button><button id="download-report" class="secondary" hidden>Download .md</button><span id="report-status" class="muted"></span></div>
+    <div id="report-output" class="report-view muted">Choose a report to generate.</div></section>
   <dialog id="incident-dialog"><form method="dialog"><h2>Incident</h2><pre id="incident-detail"></pre><label>Status <select id="incident-status"><option>open</option><option>investigating</option><option>resolved</option><option>closed</option></select></label><br><label>Assignee <input id="incident-assignee"></label><p id="incident-error" class="error"></p><p><button id="save-incident" value="default">Save</button> <button>Cancel</button></p></form></dialog>
   <script src="/dashboard.js"></script>
 </body></html>'''
@@ -65,10 +88,14 @@ const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'];
 
 function storedKey() { try { return sessionStorage.getItem('siem-api-key') || ''; } catch { return ''; } }
 function headers() { const key = storedKey(); return key ? {'X-API-Key': key} : {}; }
-class HttpError extends Error { constructor(path, status) { super(`${path}: HTTP ${status}`); this.status = status; } }
+class HttpError extends Error { constructor(path, status, detail) { super(detail || `${path}: HTTP ${status}`); this.status = status; } }
 async function request(path, options = {}) {
   const response = await fetch(path, {...options, headers: {...headers(), ...(options.headers || {})}});
-  if (!response.ok) throw new HttpError(path, response.status);
+  if (!response.ok) {
+    let detail = '';
+    try { detail = (await response.json()).error || ''; } catch {}
+    throw new HttpError(path, response.status, detail);
+  }
   return response;
 }
 const postJson = (path, body) => request(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
@@ -221,6 +248,151 @@ function switchView(view) {
   try { localStorage.setItem('siem-view', view); } catch {}
 }
 
+const CAPABILITY_TEXT = {
+  'kernel-driver': 'Runs as a Windows kernel driver (full control of the machine)',
+  'registry-modification': 'Changes the Windows registry',
+  'process-injection': 'Injects code into other running programs',
+  'keylogging': 'Can record keystrokes',
+  'network-download': 'Uses the network / downloads files',
+  'service-persistence': 'Installs a service or autostart entry (survives reboot)',
+  'process-execution': 'Launches other programs or commands',
+  'privilege-escalation': 'Tries to raise its own privileges',
+  'anti-debugging': 'Tries to detect analysis tools',
+  'security-tampering': 'Tampers with security settings (firewall / antivirus)',
+};
+let role = 'viewer';
+let features = {virustotal: false, ai: false};
+let analyses = [];
+let reportText = '';
+const canWrite = () => role === 'analyst' || role === 'admin';
+
+// High entropy is not an API capability, but it is often the reason a file looks suspicious.
+function capabilityList(a) {
+  const caps = Object.entries(a.capabilities || {});
+  if ((a.indicators || []).includes('high-entropy')) caps.unshift(['packed', [`entropy ${a.entropy}`]]);
+  return caps;
+}
+CAPABILITY_TEXT.packed = 'Packed or encrypted: hides its real code from analysis';
+const when = iso => { const date = new Date(iso); return isNaN(date) ? iso : date.toLocaleString(); };
+
+function size(bytes) { return bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`; }
+
+function vtSummary(vt) {
+  if (!vt) return '<span class="muted">not checked</span>';
+  if (!vt.found) return '<span class="muted">unknown hash</span>';
+  return `<span class="${vt.malicious ? 'high' : 'status'}">${esc(vt.malicious)} / ${esc(vt.total_engines)} malicious</span>`;
+}
+
+function renderAnalysis(a) {
+  const box = $('analysis-result');
+  box.hidden = false;
+  const caps = capabilityList(a);
+  const vt = a.virustotal;
+  const vtBlock = vt ? (vt.found
+      ? `<div class="reputation ${vt.malicious ? 'bad' : 'good'}"><strong>VirusTotal: ${esc(vt.malicious)} of ${esc(vt.total_engines)} antivirus engines flag this file as malicious</strong>${vt.suspicious ? `, ${esc(vt.suspicious)} as suspicious` : ''}.
+         ${(vt.tags || []).length ? `<div class="chips">${vt.tags.slice(0, 8).map(t => `<span class="chip">${esc(t)}</span>`).join('')}</div>` : ''}
+         <div><a href="${esc(vt.permalink)}" target="_blank" rel="noopener noreferrer">Open full VirusTotal report</a></div></div>`
+      : '<div class="reputation">VirusTotal has never seen this hash.</div>')
+    : '';
+  const entropyNote = a.entropy >= 7.2 ? ' (very high: likely packed or encrypted)' : a.entropy >= 6 ? ' (high)' : ' (normal)';
+  box.innerHTML = `<div class="result-head"><h3>${esc(a.filename)}</h3><span class="verdict ${esc(a.classification)}">${esc(a.classification.replace(/-/g, ' '))}</span></div>
+    <dl class="facts"><div><dt>File type</dt><dd>${esc(a.magic)}</dd></div><div><dt>Size</dt><dd>${esc(size(a.size))}</dd></div>
+      <div><dt>Entropy</dt><dd>${esc(a.entropy)}${esc(entropyNote)}</dd></div><div><dt>Analyst</dt><dd>${esc(a.analyst)}</dd></div></dl>
+    <div><strong>SHA-256</strong> <code>${esc(a.sha256)}</code></div>
+    <h4>What this file can do</h4>
+    ${caps.length ? `<ul class="caps">${caps.map(([name, terms]) => `<li><strong>${esc(CAPABILITY_TEXT[name] || name)}</strong><br><code>${terms.map(esc).join(', ')}</code></li>`).join('')}</ul>`
+                  : '<p class="muted">No suspicious capabilities found in the strings.</p>'}
+    <div class="chips">${(a.indicators || []).map(i => `<span class="chip ${i.startsWith('capability') || i === 'high-entropy' ? 'danger' : ''}">${esc(i)}</span>`).join('')}</div>
+    ${a.ioc ? `<div class="reputation bad"><strong>Threat-intel match:</strong> this hash is a known indicator from ${esc(a.ioc.source)} (${esc(a.ioc.confidence)}% confidence).</div>` : ''}
+    ${vtBlock}
+    ${a.quarantined ? `<div class="reputation good"><strong>Quarantined</strong> by ${esc(a.quarantined_by)}.</div>` : ''}
+    <div class="toolbar">
+      <button id="vt-check" ${features.virustotal && canWrite() ? '' : 'disabled'} title="${features.virustotal ? 'Look up the hash (the file is never uploaded)' : 'Set VIRUSTOTAL_API_KEY to enable'}">Check VirusTotal</button>
+      <button id="quarantine" class="danger" ${role === 'admin' && !a.quarantined ? '' : 'disabled'} title="${role === 'admin' ? 'Move the sample into the quarantine vault' : 'Admin role required'}">Quarantine</button>
+      <button id="report-this" class="secondary">Report on this file</button>
+      <span id="action-status" class="muted">${features.virustotal ? '' : 'VirusTotal not configured.'}</span></div>
+    <details><summary>Extracted strings (${esc((a.strings || []).length)})</summary><pre>${(a.strings || []).map(esc).join('\n')}</pre></details>`;
+  $('vt-check').addEventListener('click', async () => {
+    $('action-status').textContent = 'Asking VirusTotal…';
+    try {
+      const result = await (await postJson(`/analyses/${a.sha256}/virustotal`, {})).json();
+      a.virustotal = result.virustotal;
+      renderAnalysis(a);
+      loadWorkbench();
+    } catch (error) { $('action-status').textContent = error.message; }
+  });
+  $('quarantine').addEventListener('click', async () => {
+    if (!confirm(`Quarantine ${a.filename}?`)) return;
+    try {
+      renderAnalysis((await (await postJson(`/analyses/${a.sha256}/quarantine`, {})).json()).analysis);
+      loadWorkbench();
+    } catch (error) { $('action-status').textContent = error.message; }
+  });
+  $('report-this').addEventListener('click', () => { $('report-file').value = a.sha256; switchView('reports'); makeReport(false); });
+}
+
+function renderAnalyses() {
+  $('analyses').innerHTML = analyses.map(a => `<tr><td><span class="verdict ${esc(a.classification)}">${esc(a.classification.replace(/-/g, ' '))}</span></td>
+    <td><button class="secondary" data-sha="${esc(a.sha256)}">${esc(a.filename)}</button>${a.quarantined ? ' <span class="chip">quarantined</span>' : ''}</td>
+    <td><div class="chips">${capabilityList(a).map(([c]) => `<span class="chip danger">${esc(c)}</span>`).join('') || '<span class="muted">none</span>'}</div></td>
+    <td>${vtSummary(a.virustotal)}</td><td>${esc(when(a.analyzed_at))}</td></tr>`).join('') || '<tr><td colspan="5">No files analyzed yet.</td></tr>';
+  document.querySelectorAll('[data-sha]').forEach(b => b.addEventListener('click', () => renderAnalysis(analyses.find(a => a.sha256 === b.dataset.sha))));
+  const selected = $('report-file').value;
+  $('report-file').innerHTML = '<option value="">No file</option>' + analyses.map(a => `<option value="${esc(a.sha256)}">${esc(a.filename)}</option>`).join('');
+  $('report-file').value = analyses.some(a => a.sha256 === selected) ? selected : '';
+}
+
+function renderIocs(items) {
+  $('iocs').innerHTML = items.map(i => `<tr><td><span class="chip">${esc(i.kind)}</span></td><td><code>${esc(i.value)}</code></td><td>${esc(i.source)}</td><td>${esc(i.confidence)}%</td><td>${esc(when(i.created_at))}</td></tr>`).join('')
+    || '<tr><td colspan="5">No indicators yet.</td></tr>';
+}
+
+async function loadWorkbench() {
+  const [caps, list, iocs] = await Promise.all([get('/capabilities'), get('/analyses'), get('/iocs')]);
+  features = caps;
+  analyses = list.analyses || [];
+  renderAnalyses();
+  renderIocs(iocs.indicators || []);
+  const writeTitle = canWrite() ? '' : 'Analyst role required';
+  for (const id of ['analyze', 'ioc-scan']) { $(id).disabled = !canWrite(); $(id).title = writeTitle; }
+  $('make-ai-report').disabled = !(features.ai && canWrite());
+  $('make-ai-report').title = features.ai ? 'Summarize the evidence with AI' : 'Set OPENAI_API_KEY and install openai to enable';
+}
+
+function markdown(source) {
+  const inline = line => esc(line).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/`([^`]+)`/g, '<code>$1</code>');
+  let html = '', list = false;
+  for (const raw of source.split('\n')) {
+    const line = raw.trimEnd();
+    const bullet = line.match(/^\s*[-*] (.*)$/);
+    if (bullet && !list) { html += '<ul>'; list = true; }
+    if (!bullet && list) { html += '</ul>'; list = false; }
+    if (bullet) html += `<li>${inline(bullet[1])}</li>`;
+    else if (line.startsWith('# ')) html += `<h2>${inline(line.slice(2))}</h2>`;
+    else if (line.startsWith('## ')) html += `<h3>${inline(line.slice(3))}</h3>`;
+    else if (/^#{3,} /.test(line)) html += `<h4>${inline(line.replace(/^#+ /, ''))}</h4>`;
+    else if (line) html += `<p>${inline(line)}</p>`;
+  }
+  return html + (list ? '</ul>' : '');
+}
+
+async function makeReport(ai) {
+  const sha = $('report-file').value;
+  $('report-status').textContent = ai ? 'AI is writing the summary… (this can take up to a minute)' : 'Generating…';
+  $('download-report').hidden = true;
+  try {
+    const result = ai ? await (await postJson('/report/ai', {sha256: sha})).json()
+                      : await get(`/report${sha ? `?sha256=${encodeURIComponent(sha)}` : ''}`);
+    reportText = result.markdown;
+    $('report-output').className = `report-view${ai ? ' ai' : ''}`;
+    $('report-output').innerHTML = (ai ? '<p class="chip">AI-generated draft: review before acting</p>' : '') + markdown(reportText);
+    $('download-report').hidden = false;
+    $('report-status').textContent = '';
+  } catch (error) {
+    $('report-status').textContent = error.message;
+  }
+}
+
 async function load() {
   $('error').textContent = '';
   try {
@@ -239,6 +411,8 @@ async function load() {
     const metrics = {};
     for (const match of metricsText.matchAll(/^siem_([a-z_]+)\s+(\d+)$/gm)) metrics[match[1]] = Number(match[2]);
     $('role-label').textContent = `Signed in as ${me.name} (${me.role})`;
+    role = me.role;
+    await loadWorkbench();
     $('status').textContent = health.status || 'ok';
     $('status').className = 'number status';
     $('event-count').textContent = metrics.security_events ?? '0';
@@ -297,6 +471,49 @@ $('save-incident').addEventListener('click', async event => {
   } catch (error) {
     $('incident-error').textContent = `Save failed: ${error.message}`;
   }
+});
+$('analyze').addEventListener('click', () => {
+  const file = $('sample-file').files[0];
+  if (!file) { $('analyze-status').textContent = 'Choose a file first.'; return; }
+  $('analyze-status').textContent = `Analyzing ${file.name}…`;
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      const content = String(reader.result).split(',', 2)[1] || '';
+      const result = await (await postJson('/analyze', {filename: file.name, content_base64: content})).json();
+      $('analyze-status').textContent = result.analysis.alerts ? `Done: ${result.analysis.alerts} alert(s) raised.` : 'Done.';
+      renderAnalysis(result.analysis);
+      loadWorkbench();
+    } catch (error) { $('analyze-status').textContent = `Analysis failed: ${error.message}`; }
+  };
+  reader.readAsDataURL(file);
+});
+$('ioc-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  try {
+    const result = await (await postJson('/iocs', {kind: $('ioc-kind').value, value: $('ioc-value').value,
+      source: $('ioc-source').value, confidence: Number($('ioc-confidence').value)})).json();
+    renderIocs(result.indicators || []);
+    $('ioc-value').value = '';
+    $('ioc-status').textContent = 'Indicator added.';
+  } catch (error) { $('ioc-status').textContent = error.message; }
+});
+$('ioc-scan').addEventListener('click', async () => {
+  $('ioc-status').textContent = 'Scanning…';
+  try {
+    const result = await (await postJson('/iocs/scan', {})).json();
+    $('ioc-status').textContent = `Scanned ${result.events_scanned} events: ${result.new_alerts} new alert(s).`;
+  } catch (error) { $('ioc-status').textContent = error.message; }
+});
+$('make-report').addEventListener('click', () => makeReport(false));
+$('make-ai-report').addEventListener('click', () => makeReport(true));
+$('download-report').addEventListener('click', () => {
+  const url = URL.createObjectURL(new Blob([reportText], {type: 'text/markdown'}));
+  const link = Object.assign(document.createElement('a'), {href: url, download: 'siem-incident-report.md'});
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
 load();
 setInterval(load, 30000);

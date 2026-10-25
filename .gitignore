@@ -10,3 +10,9 @@ quarantine/
 
 *.db-wal
 *.db-shm
+
+# Video demo kit: generated data and live malware samples are never committed.
+video-demo/data/
+video-demo/logs/
+video-demo/samples/
+cli-demo/

@@ -9,6 +9,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import hashlib
 import hmac
 import io
+import base64
+import binascii
 import ipaddress
 import json
 import os
@@ -23,6 +25,8 @@ from siem.ingestion.formats import PARSERS, LogLineError, parse_line
 from siem.ingestion.json_lines import JsonLogParseError, parse_json_record
 from siem.storage.sqlite import SqliteEventStore
 from siem.api.dashboard import DASHBOARD_HTML, DASHBOARD_JS
+from siem.api.workbench import MAX_SAMPLE_BYTES, FeatureUnavailable, Workbench, WorkbenchError
+from siem.intel.virustotal import VirusTotalError
 
 
 SESSION_COOKIE = "siem_session"
@@ -237,8 +241,9 @@ class _SlidingLimiter:
 def make_handler(database: Path, api_key: str | None = None, alert_paths: list[Path] | None = None,
                  api_keys: dict[str, str] | dict[str, tuple[str, str]] | None = None,
                  trusted_proxies: list | None = None, *, allow_anonymous: bool = False,
-                 ingest_path: Path | None = None):
+                 ingest_path: Path | None = None, work_dir: Path | None = None):
     store = SqliteEventStore(database)
+    workbench = Workbench(work_dir or database.parent, store)
     ingest_lock = threading.Lock()
     alert_sync = AlertFileSync(store, alert_paths or [])
     alert_sync.sync()
@@ -424,6 +429,21 @@ def make_handler(database: Path, api_key: str | None = None, alert_paths: list[P
                     return
                 self._json(200, {"count": len(incidents), "incidents": incidents})
                 return
+            if parsed.path == "/capabilities":
+                self._json(200, workbench.capabilities())
+                return
+            if parsed.path == "/analyses":
+                self._json(200, {"analyses": workbench.analyses()})
+                return
+            if parsed.path == "/iocs":
+                self._json(200, {"indicators": workbench.iocs.list()})
+                return
+            if parsed.path == "/report":
+                try:
+                    self._json(200, {"markdown": workbench.report(parse_qs(parsed.query).get("sha256", [None])[0])})
+                except WorkbenchError as exc:
+                    self._json(400, {"error": str(exc)})
+                return
             if parsed.path.startswith("/incidents/"):
                 incident_id = parsed.path.rsplit("/", 1)[-1]
                 incident = store.get_incident(incident_id)
@@ -580,7 +600,7 @@ def make_handler(database: Path, api_key: str | None = None, alert_paths: list[P
             if principal is None:
                 return
             if path != "/incidents":
-                self._json(404, {"error": "not found"})
+                self._workbench_post(path, principal)
                 return
             try:
                 body = self._body()
@@ -593,6 +613,38 @@ def make_handler(database: Path, api_key: str | None = None, alert_paths: list[P
                 self._json(400, {"error": "invalid incident payload"})
                 return
             self._json(201, {"incident": incident})
+
+        def _workbench_post(self, path: str, principal: Principal) -> None:
+            """Analyst actions: file triage, reputation, quarantine, IOCs and reports."""
+            parts = path.strip("/").split("/")
+            try:
+                body = self._body(max_bytes=MAX_SAMPLE_BYTES * 2)
+                if path == "/analyze":
+                    content = base64.b64decode(str(body.get("content_base64", "")), validate=True)
+                    self._json(201, {"analysis": workbench.analyze_upload(str(body.get("filename", "")), content, principal.name)})
+                elif len(parts) == 3 and parts[0] == "analyses" and parts[2] == "virustotal":
+                    self._json(200, {"virustotal": workbench.check_reputation(parts[1])})
+                elif len(parts) == 3 and parts[0] == "analyses" and parts[2] == "quarantine":
+                    if principal.role != "admin":
+                        self._json(403, {"error": "admin role required to quarantine"})
+                        return
+                    self._json(200, {"analysis": workbench.quarantine(parts[1], principal.name)})
+                elif path == "/iocs":
+                    workbench.add_indicator(str(body.get("kind", "")), str(body.get("value", "")),
+                                            str(body.get("source") or principal.name)[:64], int(body.get("confidence", 50)))
+                    self._json(201, {"indicators": workbench.iocs.list()})
+                elif path == "/iocs/scan":
+                    self._json(200, workbench.scan_events())
+                elif path == "/report/ai":
+                    self._json(200, {"markdown": workbench.ai_report(body.get("sha256") or None)})
+                else:
+                    self._json(404, {"error": "not found"})
+            except FeatureUnavailable as exc:
+                self._json(503, {"error": str(exc)})
+            except VirusTotalError as exc:
+                self._json(502, {"error": str(exc)})
+            except (WorkbenchError, ValueError, TypeError, binascii.Error, json.JSONDecodeError) as exc:
+                self._json(400, {"error": str(exc) or "invalid request"})
 
         def do_PATCH(self) -> None:  # noqa: N802
             if not requests.allow(self._client()):
@@ -627,7 +679,8 @@ def make_handler(database: Path, api_key: str | None = None, alert_paths: list[P
 
 def create_server(host: str, port: int, database: Path, api_key: str | None = None, alert_paths: list[Path] | None = None,
                   api_keys: dict[str, str] | dict[str, tuple[str, str]] | None = None,
-                  *, allow_insecure_local: bool = False, ingest_path: Path | None = None) -> ThreadingHTTPServer:
+                  *, allow_insecure_local: bool = False, ingest_path: Path | None = None,
+                  work_dir: Path | None = None) -> ThreadingHTTPServer:
     """Build the server. Some credential (API key or dashboard user) is required,
     unless `allow_insecure_local` is set and the server binds to loopback only."""
     configured_key = api_key or os.getenv("SIEM_API_KEY")
@@ -641,5 +694,5 @@ def create_server(host: str, port: int, database: Path, api_key: str | None = No
     trusted = parse_trusted_proxies(os.getenv("SIEM_TRUSTED_PROXIES"))
     handler = make_handler(database, configured_key, alert_paths, configured_keys, trusted,
                            allow_anonymous=allow_insecure_local and not (configured_key or configured_keys),
-                           ingest_path=ingest_path)
+                           ingest_path=ingest_path, work_dir=work_dir)
     return ThreadingHTTPServer((host, port), handler)
