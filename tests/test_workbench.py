@@ -115,6 +115,17 @@ class WorkbenchApiTests(unittest.TestCase):
         self.assertEqual(self._status(f"/analyses/{sha256}/virustotal", "analyst-key", "POST", {}), 503)
         self.assertEqual(self._status("/report/ai", "analyst-key", "POST", {}), 503)
 
+    def test_ai_summary_gets_compact_evidence(self) -> None:
+        sha256 = self._analyze()["sha256"]
+        os.environ["OPENAI_API_KEY"] = "test"
+        with mock.patch("siem.api.workbench.ai_available", return_value=True), \
+                mock.patch("siem.api.workbench.generate_ai_report", return_value="# Summary") as generate:
+            self.assertEqual(self._call("/report/ai", "analyst-key", "POST", {"sha256": sha256})["markdown"], "# Summary")
+        context = generate.call_args.args[0]
+        self.assertEqual(context["alerts_by_rule"], [{"severity": "high", "rule": "file.suspicious", "count": 1}])
+        self.assertEqual(context["alerts"][0]["title"], "Suspicious file: invoice.exe")
+        self.assertNotIn("strings", context["file_analysis"])
+
     def test_virustotal_lookup_is_cached_and_alerts(self) -> None:
         sha256 = self._analyze()["sha256"]
         os.environ["VIRUSTOTAL_API_KEY"] = "test"
